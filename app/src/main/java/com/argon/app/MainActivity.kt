@@ -13,6 +13,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -32,6 +34,7 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 
 private const val BASE = "gemini-flash-latest"
 private const val RAPIDO = "gemini-flash-lite-latest"
@@ -64,12 +67,14 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: SharedPreferences
     private lateinit var herramientas: Herramientas
+    private lateinit var local: Local
     private lateinit var chat: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var entrada: EditText
     private lateinit var enviar: Button
     private lateinit var btnBase: Button
     private lateinit var btnRapido: Button
+    private lateinit var btnOffline: Button
     private lateinit var descripcion: TextView
     private lateinit var cargando: LinearLayout
     private lateinit var adjuntoTxt: TextView
@@ -79,6 +84,7 @@ class MainActivity : Activity() {
     private var tituloChat = ""
     private var adjunto: Adjunto? = null
     private var modo = "base"
+    private var ultimoTexto = ""
     private var enSegundoPlano = false
     private var ocupado = false
 
@@ -86,6 +92,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("argon", MODE_PRIVATE)
         herramientas = Herramientas(this)
+        local = Local(applicationContext)
         modo = prefs.getString("modo", "base") ?: "base"
 
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -120,6 +127,11 @@ class MainActivity : Activity() {
         enSegundoPlano = false
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        local.liberar()
+    }
+
     private fun dp(n: Int): Int = (n * resources.displayMetrics.density).toInt()
 
     private fun boton(texto: String, accion: () -> Unit): Button {
@@ -131,6 +143,14 @@ class MainActivity : Activity() {
         b.minimumWidth = 0
         b.setOnClickListener { accion() }
         return b
+    }
+
+    private fun hayInternet(): Boolean {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private fun construirUi(): View {
@@ -165,8 +185,18 @@ class MainActivity : Activity() {
         fila2.setPadding(dp(8), dp(4), dp(8), 0)
         btnBase = boton("Argón base") { modo = "base"; actualizarModo() }
         btnRapido = boton("Argón rápido") { modo = "rapido"; actualizarModo() }
+        btnOffline = boton("Sin conexión") {
+            modo = "offline"
+            actualizarModo()
+            if (!local.hayModelo()) mostrarImportarModelo()
+        }
+        btnOffline.setOnLongClickListener {
+            mostrarImportarModelo()
+            true
+        }
         fila2.addView(btnBase, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         fila2.addView(btnRapido, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        fila2.addView(btnOffline, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(fila2)
 
         descripcion = TextView(this)
@@ -234,12 +264,15 @@ class MainActivity : Activity() {
         val inactivo = Color.parseColor("#2A2F36")
         btnBase.setBackgroundColor(if (modo == "base") activo else inactivo)
         btnRapido.setBackgroundColor(if (modo == "rapido") activo else inactivo)
+        btnOffline.setBackgroundColor(if (modo == "offline") activo else inactivo)
         btnBase.setTextColor(Color.WHITE)
         btnRapido.setTextColor(Color.WHITE)
-        descripcion.text = if (modo == "base")
-            "Base: el modelo normal, mejor para programar y temas largos"
-        else
-            "Rápido: el modelo liviano, para charla y textos cortos"
+        btnOffline.setTextColor(Color.WHITE)
+        descripcion.text = when (modo) {
+            "base" -> "Base: el modelo normal, mejor para programar y temas largos"
+            "rapido" -> "Rápido: el modelo liviano, para charla y textos cortos"
+            else -> "Sin conexión: modelo en tu teléfono, para emergencias y cosas simples. Mantén pulsado para cambiar el modelo"
+        }
     }
 
     private fun pedirClave() {
@@ -282,6 +315,15 @@ class MainActivity : Activity() {
         return if (mem.isNotBlank())
             SISTEMA + "\n\nLo que sabes de rafachafa (tu memoria, úsala solo cuando sea relevante):\n" + mem
         else SISTEMA
+    }
+
+    private fun sistemaOffline(): String {
+        val mem = (prefs.getString("memoria", "") ?: "").take(1500)
+        val base = "Eres Argón, el asistente de rafachafa, así lo llamas siempre. " +
+            "Ahora estás sin conexión a internet. Hablas español. " +
+            "Responde muy corto y directo, sin emojis. Si no estás seguro de algo, dilo. " +
+            "En una emergencia real, recuérdale llamar al número de emergencias de su país."
+        return if (mem.isNotBlank()) base + "\n\nLo que sabes de rafachafa:\n" + mem else base
     }
 
     private fun procesarRecuerdos(texto: String): Pair<String, List<String>> {
@@ -349,8 +391,13 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 2 || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
+        if (requestCode == 5) {
+            importarModelo(uri)
+            return
+        }
+        if (requestCode != 2) return
         Thread {
             val r = leerAdjunto(uri)
             runOnUiThread {
@@ -417,6 +464,78 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             return ResAdjunto(null, "Error al leer el archivo: ${e.message}")
         }
+    }
+
+    // ---------- Modelo sin conexión ----------
+
+    private fun mostrarImportarModelo() {
+        AlertDialog.Builder(this)
+            .setTitle("Modelo sin conexión")
+            .setMessage(
+                "Para responder sin internet, Argón necesita un archivo de modelo (.litertlm). " +
+                    "Se descarga una sola vez, con internet.\n\n" +
+                    "1. En el navegador abre Hugging Face y busca: litert-community/Qwen3-0.6B (pesa unos 0.6 GB).\n" +
+                    "2. En Files and versions, descarga el archivo que termina en .litertlm.\n" +
+                    "3. Vuelve aquí y toca Elegir archivo."
+            )
+            .setPositiveButton("Elegir archivo") { _, _ -> elegirModelo() }
+            .setNegativeButton("Luego", null)
+            .show()
+    }
+
+    private fun elegirModelo() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+        i.addCategory(Intent.CATEGORY_OPENABLE)
+        i.type = "*/*"
+        startActivityForResult(i, 5)
+    }
+
+    private fun importarModelo(uri: Uri) {
+        if (ocupado) {
+            Toast.makeText(this, "Espera a que Argón termine", Toast.LENGTH_SHORT).show()
+            return
+        }
+        ocupado = true
+        enviar.isEnabled = false
+        cargando.visibility = View.VISIBLE
+        agregarNota("Copiando el modelo al teléfono... puede tardar un par de minutos")
+        Thread {
+            var error: String? = null
+            try {
+                local.liberar()
+                var tam = -1L
+                contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    if (c.moveToFirst()) {
+                        val i2 = c.getColumnIndex(OpenableColumns.SIZE)
+                        if (i2 >= 0 && !c.isNull(i2)) tam = c.getLong(i2)
+                    }
+                }
+                if (tam > 0 && filesDir.usableSpace < tam + 200L * 1024 * 1024) {
+                    error = "No hay espacio suficiente en el teléfono para el modelo"
+                } else {
+                    val destino = local.archivo()
+                    val tmp = File(filesDir, "modelo.tmp")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(tmp).use { out -> input.copyTo(out, 1 shl 20) }
+                    } ?: throw Exception("No pude abrir el archivo")
+                    if (destino.exists()) destino.delete()
+                    if (!tmp.renameTo(destino)) throw Exception("No pude guardar el modelo")
+                }
+            } catch (e: Exception) {
+                error = "Error al copiar el modelo: ${e.message}"
+            }
+            val err = error
+            runOnUiThread {
+                ocupado = false
+                enviar.isEnabled = true
+                cargando.visibility = View.GONE
+                if (err != null) {
+                    agregarBurbuja(err, false, true)
+                } else {
+                    agregarNota("Modelo listo. Ya puedes usar Argón sin conexión.")
+                }
+            }
+        }.start()
     }
 
     // ---------- Chats ----------
@@ -550,12 +669,33 @@ class MainActivity : Activity() {
         val texto0 = entrada.text.toString().trim()
         val adj = adjunto
         if ((texto0.isEmpty() && adj == null) || ocupado) return
+
+        val sinRed = !hayInternet()
+        if (modo == "offline" || sinRed) {
+            if (adj != null) {
+                Toast.makeText(this, "Sin conexión no puedo leer archivos. Quita el adjunto.", Toast.LENGTH_LONG).show()
+                return
+            }
+            if (texto0.isEmpty()) return
+            entrada.setText("")
+            if (historial.length() == 0) tituloChat = texto0.take(40)
+            agregarBurbuja(texto0, true)
+            historial.put(
+                JSONObject().put("role", "user")
+                    .put("parts", JSONArray().put(JSONObject().put("text", texto0)))
+            )
+            if (sinRed && modo != "offline") agregarNota("Sin internet: usaré Argón sin conexión")
+            ejecutarOffline(texto0)
+            return
+        }
+
         val clave = prefs.getString("clave", "") ?: ""
         if (clave.isEmpty()) {
             pedirClave()
             return
         }
         val texto = if (texto0.isEmpty()) "Analiza este archivo." else texto0
+        ultimoTexto = texto0
         entrada.setText("")
         adjunto = null
         adjuntoTxt.visibility = View.GONE
@@ -609,10 +749,63 @@ class MainActivity : Activity() {
                 agregarNota("Respondió Argón rápido porque Argón base estaba saturado")
             }
             guardarChat()
+            local.liberar()
             if (enSegundoPlano) notificar(limpio)
         } else {
+            val err = r.error
+            if (err != null && err.startsWith("Sin conexión") && local.hayModelo() && ultimoTexto.isNotEmpty()) {
+                agregarNota("Sin conexión a internet: usando Argón sin conexión")
+                ejecutarOffline(ultimoTexto)
+                return
+            }
             historial.remove(historial.length() - 1)
-            agregarBurbuja(r.error ?: "Error desconocido", false, true)
+            agregarBurbuja(err ?: "Error desconocido", false, true)
+        }
+    }
+
+    private fun ejecutarOffline(texto: String) {
+        ocupado = true
+        enviar.isEnabled = false
+        cargando.visibility = View.VISIBLE
+        scrollAbajo()
+        val sis = sistemaOffline()
+        Thread {
+            var respuesta: String? = Offline.comandoSimple(texto, herramientas)
+            val simple = respuesta != null
+            var error: String? = null
+            if (respuesta == null) {
+                if (!local.hayModelo()) {
+                    error = "No hay modelo sin conexión. Toca el botón Sin conexión para importarlo."
+                } else {
+                    val r = local.preguntar(texto, sis)
+                    respuesta = r.first
+                    error = r.second
+                }
+            }
+            val resp = respuesta
+            val err = error
+            runOnUiThread { terminarOffline(resp, err, simple) }
+        }.start()
+    }
+
+    private fun terminarOffline(resp: String?, err: String?, simple: Boolean) {
+        ocupado = false
+        enviar.isEnabled = true
+        cargando.visibility = View.GONE
+        if (resp != null) {
+            historial.put(
+                JSONObject().put("role", "model")
+                    .put("parts", JSONArray().put(JSONObject().put("text", resp)))
+            )
+            agregarBurbuja(resp, false)
+            agregarNota(
+                if (simple) "Resuelto sin conexión, sin usar el modelo" else "Respondió Argón sin conexión"
+            )
+            guardarChat()
+            if (enSegundoPlano) notificar(resp)
+        } else {
+            historial.remove(historial.length() - 1)
+            agregarBurbuja(err ?: "Error desconocido", false, true)
         }
     }
 
