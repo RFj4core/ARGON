@@ -32,8 +32,6 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 private const val BASE = "gemini-flash-latest"
 private const val RAPIDO = "gemini-flash-lite-latest"
@@ -43,6 +41,11 @@ private const val SISTEMA =
     "Hablas español. Eres directo, serio y de pocas palabras: respuestas cortas y simples, " +
     "sin saludos exagerados, sin emojis y sin entusiasmo de más. " +
     "Eres un programador experto cuando te piden código. " +
+    "Tienes herramientas para leer contactos y SMS, poner alarmas y temporizadores, " +
+    "guardar archivos de código en Descargas/Argon, ver la batería y la ubicación. " +
+    "Úsalas solo cuando rafachafa lo pida. Si una herramienta dice que falta un permiso, " +
+    "dile que lo acepte y repita la orden. Al guardar código, primero escríbelo bien y luego guárdalo. " +
+    "Nunca repitas códigos de verificación ni datos bancarios que veas en mensajes. " +
     "Si rafachafa te pide que recuerdes algo, o te cuenta un dato personal duradero, " +
     "agrega al final de tu respuesta, en una línea nueva, [[RECORDAR: dato corto]]. " +
     "Guarda solo lo que él dijo, nunca inventes, y no guardes contraseñas, claves ni datos bancarios. " +
@@ -56,11 +59,11 @@ private val EXT_TEXTO = setOf(
 
 class MainActivity : Activity() {
 
-    private class Resultado(val texto: String?, val error: String?, val modelo: String?)
     private class Adjunto(val nombre: String, val partes: List<JSONObject>)
     private class ResAdjunto(val adjunto: Adjunto?, val error: String?)
 
     private lateinit var prefs: SharedPreferences
+    private lateinit var herramientas: Herramientas
     private lateinit var chat: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var entrada: EditText
@@ -82,6 +85,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("argon", MODE_PRIVATE)
+        herramientas = Herramientas(this)
         modo = prefs.getString("modo", "base") ?: "base"
 
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -578,12 +582,16 @@ class MainActivity : Activity() {
         val sis = sistema()
         val contenido = historial
         Thread {
-            val r = llamarApi(clave, modelos, sis, contenido)
+            val r = Api.llamar(
+                clave, modelos, sis, contenido, herramientas.declaraciones(),
+                { n, a -> herramientas.ejecutar(n, a) },
+                { n -> runOnUiThread { agregarNota("Argón usó: " + n.replace("_", " ")) } }
+            )
             runOnUiThread { manejarRespuesta(r, modoUsado) }
         }.start()
     }
 
-    private fun manejarRespuesta(r: Resultado, modoUsado: String) {
+    private fun manejarRespuesta(r: ResultadoApi, modoUsado: String) {
         ocupado = false
         enviar.isEnabled = true
         cargando.visibility = View.GONE
@@ -606,72 +614,6 @@ class MainActivity : Activity() {
             historial.remove(historial.length() - 1)
             agregarBurbuja(r.error ?: "Error desconocido", false, true)
         }
-    }
-
-    private fun llamarApi(
-        clave: String, modelos: List<String>, sistema: String, contenido: JSONArray
-    ): Resultado {
-        var ultimoError = "Error desconocido"
-        for (modelo in modelos) {
-            for (intento in 0 until 2) {
-                try {
-                    val cuerpo = JSONObject()
-                        .put(
-                            "system_instruction",
-                            JSONObject().put("parts", JSONArray().put(JSONObject().put("text", sistema)))
-                        )
-                        .put("contents", contenido)
-                    val url = URL(
-                        "https://generativelanguage.googleapis.com/v1beta/models/$modelo:generateContent"
-                    )
-                    val con = url.openConnection() as HttpURLConnection
-                    con.requestMethod = "POST"
-                    con.setRequestProperty("Content-Type", "application/json")
-                    con.setRequestProperty("x-goog-api-key", clave)
-                    con.connectTimeout = 20000
-                    con.readTimeout = 120000
-                    con.doOutput = true
-                    con.outputStream.use { it.write(cuerpo.toString().toByteArray(Charsets.UTF_8)) }
-                    val codigo = con.responseCode
-                    val stream = if (codigo in 200..299) con.inputStream else con.errorStream
-                    val resp = stream?.bufferedReader()?.use { it.readText() } ?: ""
-                    con.disconnect()
-
-                    if (codigo in 200..299) {
-                        val cand = JSONObject(resp).getJSONArray("candidates").getJSONObject(0)
-                        val partes = cand.optJSONObject("content")?.optJSONArray("parts")
-                        val sb = StringBuilder()
-                        if (partes != null) {
-                            for (k in 0 until partes.length()) {
-                                sb.append(partes.getJSONObject(k).optString("text", ""))
-                            }
-                        }
-                        val texto = sb.toString().trim()
-                        if (texto.isEmpty()) {
-                            return Resultado(null, "Argón no devolvió texto (Google pudo haberlo bloqueado).", modelo)
-                        }
-                        return Resultado(texto, null, modelo)
-                    }
-
-                    if (codigo == 429 || codigo == 500 || codigo == 503) {
-                        ultimoError = "Google está saturado o llegaste al límite gratis ($codigo). Espera un momento."
-                        if (intento == 0) Thread.sleep(2000)
-                        continue
-                    }
-
-                    val msg = try {
-                        JSONObject(resp).getJSONObject("error").getString("message")
-                    } catch (e: Exception) {
-                        resp.take(200)
-                    }
-                    return Resultado(null, "Error $codigo: $msg", modelo)
-                } catch (e: Exception) {
-                    ultimoError = "Sin conexión o error de red: ${e.message}"
-                    break
-                }
-            }
-        }
-        return Resultado(null, ultimoError, null)
     }
 
     private fun notificar(texto: String) {
