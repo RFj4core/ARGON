@@ -16,6 +16,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
+      - name: Firma fija
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE }}
+        run: |
+          mkdir -p ~/.android
+          echo "$KS" | base64 -d > ~/.android/debug.keystore
       - name: Compilar APK
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
