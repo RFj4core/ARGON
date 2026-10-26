@@ -2,9 +2,7 @@ package com.argon.app
 
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
-import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import java.io.File
@@ -16,6 +14,7 @@ class Local(private val ctx: Context) {
     private val executor = Executors.newSingleThreadExecutor()
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+    private var primera = true
 
     fun archivo(): File = File(ctx.filesDir, "modelo.litertlm")
 
@@ -41,12 +40,17 @@ class Local(private val ctx: Context) {
                 val e = Engine(config)
                 e.initialize()
                 engine = e
-                conversation = e.createConversation(
-                    ConversationConfig(systemInstruction = Contents.of(sistema))
-                )
+                conversation = e.createConversation()
+                primera = true
             }
             val c = conversation ?: return Pair(null, "No pude iniciar el modelo")
-            val respuesta = c.sendMessage(texto).toString()
+            val mensaje = if (primera) {
+                "Instrucciones para ti: $sistema\n\nMensaje de rafachafa: $texto"
+            } else {
+                texto
+            }
+            val respuesta = c.sendMessage(mensaje).toString()
+            primera = false
             val limpia = Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL)
                 .replace(respuesta, "").trim()
             return if (limpia.isEmpty()) Pair(null, "El modelo no dio respuesta") else Pair(limpia, null)
