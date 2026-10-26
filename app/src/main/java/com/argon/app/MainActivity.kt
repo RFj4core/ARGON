@@ -7,10 +7,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -24,11 +27,13 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -75,17 +80,23 @@ class MainActivity : Activity() {
     private class Adjunto(val nombre: String, val partes: List<JSONObject>)
     private class ResAdjunto(val adjunto: Adjunto?, val error: String?)
 
+    private val cFondo = Color.parseColor("#1F1E1D")
+    private val cCaja = Color.parseColor("#2B2A28")
+    private val cPildora = Color.parseColor("#3A3936")
+    private val cTexto = Color.parseColor("#ECEBE6")
+    private val cGris = Color.parseColor("#A8A69E")
+    private val cAcento = Color.parseColor("#D97757")
+    private val cCodigo = Color.parseColor("#151413")
+    private val cError = Color.parseColor("#6B2E2A")
+
     private lateinit var prefs: SharedPreferences
     private lateinit var herramientas: Herramientas
     private lateinit var local: Local
     private lateinit var chat: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var entrada: EditText
-    private lateinit var enviar: Button
-    private lateinit var btnBase: Button
-    private lateinit var btnRapido: Button
-    private lateinit var btnOffline: Button
-    private lateinit var descripcion: TextView
+    private lateinit var enviar: TextView
+    private lateinit var pildora: TextView
     private lateinit var cargando: LinearLayout
     private lateinit var adjuntoTxt: TextView
 
@@ -153,15 +164,36 @@ class MainActivity : Activity() {
 
     private fun dp(n: Int): Int = (n * resources.displayMetrics.density).toInt()
 
-    private fun boton(texto: String, accion: () -> Unit): Button {
-        val b = Button(this)
-        b.text = texto
-        b.textSize = 13f
-        b.transformationMethod = null
-        b.minWidth = 0
-        b.minimumWidth = 0
-        b.setOnClickListener { accion() }
-        return b
+    private fun forma(color: Int, radio: Int): GradientDrawable {
+        val g = GradientDrawable()
+        g.setColor(color)
+        g.cornerRadius = dp(radio).toFloat()
+        return g
+    }
+
+    private fun circulo(
+        texto: String, tam: Int, fondo: Int, colorTxt: Int, tamTexto: Float, accion: () -> Unit
+    ): TextView {
+        val t = TextView(this)
+        t.text = texto
+        t.textSize = tamTexto
+        t.setTextColor(colorTxt)
+        t.gravity = Gravity.CENTER
+        val g = GradientDrawable()
+        g.shape = GradientDrawable.OVAL
+        g.setColor(fondo)
+        t.background = g
+        t.layoutParams = LinearLayout.LayoutParams(dp(tam), dp(tam))
+        t.setOnClickListener { accion() }
+        return t
+    }
+
+    private fun estadoOcupado(v: Boolean) {
+        ocupado = v
+        enviar.isEnabled = !v
+        enviar.alpha = if (v) 0.4f else 1f
+        cargando.visibility = if (v) View.VISIBLE else View.GONE
+        if (v) scrollAbajo()
     }
 
     private fun hayInternet(): Boolean {
@@ -175,7 +207,7 @@ class MainActivity : Activity() {
     private fun construirUi(): View {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(Color.parseColor("#101418"))
+        root.setBackgroundColor(cFondo)
         root.setOnApplyWindowInsetsListener { v, ins ->
             v.setPadding(
                 ins.systemWindowInsetLeft, ins.systemWindowInsetTop,
@@ -184,47 +216,23 @@ class MainActivity : Activity() {
             ins
         }
 
+        // Cabecera
         val fila1 = LinearLayout(this)
         fila1.orientation = LinearLayout.HORIZONTAL
         fila1.gravity = Gravity.CENTER_VERTICAL
-        fila1.setPadding(dp(8), dp(8), dp(8), 0)
-        val btnMenu = boton("☰") { abrirMenu() }
-        btnMenu.textSize = 20f
-        fila1.addView(btnMenu)
+        fila1.setPadding(dp(10), dp(8), dp(10), dp(4))
+        fila1.addView(circulo("☰", 40, cCaja, cTexto, 18f) { abrirMenu() })
         val titulo = TextView(this)
         titulo.text = "Argón"
-        titulo.textSize = 22f
+        titulo.textSize = 20f
         titulo.setTypeface(null, Typeface.BOLD)
-        titulo.setTextColor(Color.WHITE)
-        titulo.setPadding(dp(10), 0, 0, 0)
+        titulo.setTextColor(cTexto)
+        titulo.setPadding(dp(14), 0, 0, 0)
         fila1.addView(titulo, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        fila1.addView(circulo("✎", 40, cCaja, cTexto, 18f) { nuevoChat() })
         root.addView(fila1)
 
-        val fila2 = LinearLayout(this)
-        fila2.orientation = LinearLayout.HORIZONTAL
-        fila2.setPadding(dp(8), dp(4), dp(8), 0)
-        btnBase = boton("Argón base") { modo = "base"; actualizarModo() }
-        btnRapido = boton("Argón rápido") { modo = "rapido"; actualizarModo() }
-        btnOffline = boton("Sin conexión") {
-            modo = "offline"
-            actualizarModo()
-            if (!local.hayModelo()) mostrarImportarModelo()
-        }
-        btnOffline.setOnLongClickListener {
-            mostrarImportarModelo()
-            true
-        }
-        fila2.addView(btnBase, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        fila2.addView(btnRapido, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        fila2.addView(btnOffline, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(fila2)
-
-        descripcion = TextView(this)
-        descripcion.textSize = 12f
-        descripcion.setTextColor(Color.parseColor("#8A94A0"))
-        descripcion.setPadding(dp(14), dp(2), dp(14), dp(4))
-        root.addView(descripcion)
-
+        // Chat
         chat = LinearLayout(this)
         chat.orientation = LinearLayout.VERTICAL
         chat.setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -232,70 +240,137 @@ class MainActivity : Activity() {
         scroll.addView(chat)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
+        // Indicador de carga
         cargando = LinearLayout(this)
         cargando.orientation = LinearLayout.HORIZONTAL
         cargando.gravity = Gravity.CENTER_VERTICAL
-        cargando.setPadding(dp(14), dp(4), dp(14), dp(4))
+        cargando.setPadding(dp(16), dp(4), dp(16), dp(4))
         cargando.visibility = View.GONE
-        cargando.addView(ProgressBar(this), LinearLayout.LayoutParams(dp(24), dp(24)))
+        val rueda = ProgressBar(this)
+        rueda.indeterminateTintList = ColorStateList.valueOf(cAcento)
+        cargando.addView(rueda, LinearLayout.LayoutParams(dp(22), dp(22)))
         val txt = TextView(this)
         txt.text = "  Argón pensando..."
-        txt.setTextColor(Color.parseColor("#8A94A0"))
+        txt.setTextColor(cGris)
         cargando.addView(txt)
         root.addView(cargando)
 
+        // Caja de escritura
+        val caja = LinearLayout(this)
+        caja.orientation = LinearLayout.VERTICAL
+        caja.background = forma(cCaja, 28)
+        caja.setPadding(dp(8), dp(6), dp(8), dp(8))
+
         adjuntoTxt = TextView(this)
         adjuntoTxt.textSize = 13f
-        adjuntoTxt.setTextColor(Color.parseColor("#8AB4F8"))
-        adjuntoTxt.setPadding(dp(14), dp(4), dp(14), dp(4))
+        adjuntoTxt.setTextColor(cAcento)
+        adjuntoTxt.setPadding(dp(10), dp(6), dp(10), dp(2))
         adjuntoTxt.visibility = View.GONE
         adjuntoTxt.setOnClickListener {
             adjunto = null
             adjuntoTxt.visibility = View.GONE
         }
-        root.addView(adjuntoTxt)
+        caja.addView(adjuntoTxt)
 
-        val fila3 = LinearLayout(this)
-        fila3.orientation = LinearLayout.HORIZONTAL
-        fila3.gravity = Gravity.CENTER_VERTICAL
-        fila3.setPadding(dp(8), dp(4), dp(8), dp(8))
-        val btnMas = boton("+") { adjuntar() }
-        btnMas.textSize = 20f
-        val btnFoto = boton("📷") { tomarFoto() }
-        btnFoto.textSize = 16f
         entrada = EditText(this)
+        entrada.background = null
         entrada.hint = "Escríbele a Argón..."
-        entrada.setHintTextColor(Color.parseColor("#6B7480"))
-        entrada.setTextColor(Color.WHITE)
+        entrada.setHintTextColor(cGris)
+        entrada.setTextColor(cTexto)
+        entrada.textSize = 16f
+        entrada.setPadding(dp(10), dp(8), dp(10), dp(6))
         entrada.inputType = InputType.TYPE_CLASS_TEXT or
             InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        entrada.maxLines = 5
-        enviar = boton("Enviar") { enviarMensaje() }
-        enviar.textSize = 14f
-        fila3.addView(btnMas)
-        fila3.addView(btnFoto)
-        fila3.addView(entrada, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        fila3.addView(enviar)
-        root.addView(fila3)
+        entrada.maxLines = 6
+        caja.addView(entrada)
+
+        val filaInf = LinearLayout(this)
+        filaInf.orientation = LinearLayout.HORIZONTAL
+        filaInf.gravity = Gravity.CENTER_VERTICAL
+        filaInf.addView(circulo("+", 40, cPildora, cTexto, 22f) { menuMas() })
+
+        pildora = TextView(this)
+        pildora.textSize = 14f
+        pildora.gravity = Gravity.CENTER_VERTICAL
+        pildora.setPadding(dp(16), 0, dp(16), 0)
+        pildora.background = forma(cPildora, 22)
+        val plp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40))
+        plp.setMargins(dp(8), 0, 0, 0)
+        pildora.layoutParams = plp
+        pildora.setOnClickListener { selectorModo() }
+        filaInf.addView(pildora)
+
+        filaInf.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+
+        enviar = circulo("↑", 40, cAcento, Color.WHITE, 22f) { enviarMensaje() }
+        enviar.setTypeface(null, Typeface.BOLD)
+        filaInf.addView(enviar)
+        caja.addView(filaInf)
+
+        val cajaLp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        cajaLp.setMargins(dp(8), dp(4), dp(8), dp(8))
+        root.addView(caja, cajaLp)
 
         return root
     }
 
     private fun actualizarModo() {
         prefs.edit().putString("modo", modo).apply()
-        val activo = Color.parseColor("#3D7BEA")
-        val inactivo = Color.parseColor("#2A2F36")
-        btnBase.setBackgroundColor(if (modo == "base") activo else inactivo)
-        btnRapido.setBackgroundColor(if (modo == "rapido") activo else inactivo)
-        btnOffline.setBackgroundColor(if (modo == "offline") activo else inactivo)
-        btnBase.setTextColor(Color.WHITE)
-        btnRapido.setTextColor(Color.WHITE)
-        btnOffline.setTextColor(Color.WHITE)
-        descripcion.text = when (modo) {
-            "base" -> "Base: el modelo normal, mejor para programar y temas largos"
-            "rapido" -> "Rápido: el modelo liviano, para charla y textos cortos"
-            else -> "Sin conexión: modelo en tu teléfono, para emergencias y cosas simples. Mantén pulsado para cambiar el modelo"
+        val nombre = when (modo) {
+            "base" -> "Base"
+            "rapido" -> "Rápido"
+            else -> "Sin conexión"
         }
+        val sb = SpannableStringBuilder("Argón  $nombre")
+        sb.setSpan(ForegroundColorSpan(cTexto), 0, 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(ForegroundColorSpan(cGris), 6, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        pildora.text = sb
+    }
+
+    private fun selectorModo() {
+        val items = arrayOf(
+            "Argón base\nNormal: mejor para programar y temas largos",
+            "Argón rápido\nLiviano: para charla y textos cortos",
+            "Sin conexión\nModelo en tu teléfono: emergencias y cosas simples",
+            "Cambiar el modelo sin conexión..."
+        )
+        val actual = when (modo) {
+            "base" -> 0
+            "rapido" -> 1
+            else -> 2
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Modo de Argón")
+            .setSingleChoiceItems(items, actual) { d, i ->
+                when (i) {
+                    0 -> {
+                        modo = "base"
+                        actualizarModo()
+                    }
+                    1 -> {
+                        modo = "rapido"
+                        actualizarModo()
+                    }
+                    2 -> {
+                        modo = "offline"
+                        actualizarModo()
+                        if (!local.hayModelo()) mostrarImportarModelo()
+                    }
+                    else -> mostrarImportarModelo()
+                }
+                d.dismiss()
+            }
+            .show()
+    }
+
+    private fun menuMas() {
+        AlertDialog.Builder(this)
+            .setItems(arrayOf("Adjuntar archivo", "Tomar foto")) { _, i ->
+                if (i == 0) adjuntar() else tomarFoto()
+            }
+            .show()
     }
 
     // ---------- Menú y conexiones ----------
@@ -458,38 +533,96 @@ class MainActivity : Activity() {
         return Pair(re.replace(texto, "").trim(), nuevos)
     }
 
-    // ---------- Burbujas ----------
+    // ---------- Burbujas y respuestas ----------
 
     private fun agregarBurbuja(texto: String, usuario: Boolean, error: Boolean = false) {
-        val tv = TextView(this)
-        tv.text = texto
-        tv.textSize = 16f
-        tv.setTextColor(Color.WHITE)
-        tv.setTextIsSelectable(true)
-        tv.setPadding(dp(12), dp(8), dp(12), dp(8))
-        tv.maxWidth = (resources.displayMetrics.widthPixels * 0.85).toInt()
-        val fondo = GradientDrawable()
-        fondo.cornerRadius = dp(14).toFloat()
-        fondo.setColor(
-            Color.parseColor(if (error) "#7A2E2E" else if (usuario) "#2F5FA8" else "#222831")
-        )
-        tv.background = fondo
-        val lp = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-        lp.setMargins(dp(4), dp(4), dp(4), dp(4))
-        lp.gravity = if (usuario) Gravity.END else Gravity.START
-        tv.layoutParams = lp
-        chat.addView(tv)
+        if (usuario || error) {
+            val tv = TextView(this)
+            tv.text = texto
+            tv.textSize = 16f
+            tv.setTextColor(cTexto)
+            tv.setTextIsSelectable(true)
+            tv.setPadding(dp(14), dp(10), dp(14), dp(10))
+            tv.maxWidth = (resources.displayMetrics.widthPixels * 0.82).toInt()
+            tv.background = forma(if (error) cError else cPildora, 18)
+            val lp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            lp.setMargins(dp(6), dp(6), dp(6), dp(6))
+            lp.gravity = if (usuario) Gravity.END else Gravity.START
+            tv.layoutParams = lp
+            chat.addView(tv)
+        } else {
+            agregarRespuesta(texto)
+        }
         scrollAbajo()
+    }
+
+    private fun agregarRespuesta(texto: String) {
+        val trozos = texto.split("```")
+        for ((i, t) in trozos.withIndex()) {
+            if (i % 2 == 1) {
+                val codigo = t.substringAfter("\n", t).trimEnd()
+                if (codigo.isEmpty()) continue
+                val tv = TextView(this)
+                tv.text = codigo
+                tv.typeface = Typeface.MONOSPACE
+                tv.textSize = 13f
+                tv.setTextColor(Color.parseColor("#E8E6DC"))
+                tv.setTextIsSelectable(true)
+                tv.setPadding(dp(12), dp(10), dp(12), dp(10))
+                tv.background = forma(cCodigo, 12)
+                val lp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(dp(6), dp(6), dp(6), 0)
+                tv.layoutParams = lp
+                chat.addView(tv)
+
+                val copiar = TextView(this)
+                copiar.text = "Copiar"
+                copiar.textSize = 13f
+                copiar.setTextColor(cAcento)
+                copiar.setPadding(dp(12), dp(6), dp(12), dp(6))
+                copiar.setOnClickListener {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Argón", codigo))
+                    Toast.makeText(this, "Código copiado", Toast.LENGTH_SHORT).show()
+                }
+                val clp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                clp.gravity = Gravity.END
+                clp.setMargins(dp(6), 0, dp(6), dp(6))
+                copiar.layoutParams = clp
+                chat.addView(copiar)
+            } else {
+                val limpio = t.trim()
+                if (limpio.isEmpty()) continue
+                val tv = TextView(this)
+                tv.text = limpio
+                tv.textSize = 16f
+                tv.setTextColor(cTexto)
+                tv.setLineSpacing(0f, 1.15f)
+                tv.setTextIsSelectable(true)
+                tv.setPadding(dp(8), dp(6), dp(8), dp(6))
+                tv.maxWidth = (resources.displayMetrics.widthPixels * 0.94).toInt()
+                val lp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                lp.setMargins(dp(4), dp(4), dp(4), dp(4))
+                tv.layoutParams = lp
+                chat.addView(tv)
+            }
+        }
     }
 
     private fun agregarNota(texto: String) {
         val tv = TextView(this)
         tv.text = texto
         tv.textSize = 12f
-        tv.setTextColor(Color.parseColor("#8A94A0"))
-        tv.setPadding(dp(8), 0, dp(8), dp(4))
+        tv.setTextColor(cGris)
+        tv.setPadding(dp(10), 0, dp(10), dp(4))
         chat.addView(tv)
         scrollAbajo()
     }
@@ -502,7 +635,7 @@ class MainActivity : Activity() {
         val lp = LinearLayout.LayoutParams(
             (resources.displayMetrics.widthPixels * 0.8).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        lp.setMargins(dp(4), dp(4), dp(4), dp(4))
+        lp.setMargins(dp(8), dp(6), dp(8), dp(6))
         iv.layoutParams = lp
         chat.addView(iv)
         scrollAbajo()
@@ -712,9 +845,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Espera a que Argón termine", Toast.LENGTH_SHORT).show()
             return
         }
-        ocupado = true
-        enviar.isEnabled = false
-        cargando.visibility = View.VISIBLE
+        estadoOcupado(true)
         agregarNota("Copiando el modelo al teléfono... puede tardar un par de minutos")
         Thread {
             var error: String? = null
@@ -743,9 +874,7 @@ class MainActivity : Activity() {
             }
             val err = error
             runOnUiThread {
-                ocupado = false
-                enviar.isEnabled = true
-                cargando.visibility = View.GONE
+                estadoOcupado(false)
                 if (err != null) {
                     agregarBurbuja(err, false, true)
                 } else {
@@ -929,10 +1058,7 @@ class MainActivity : Activity() {
         agregarBurbuja(texto, true)
         historial.put(JSONObject().put("role", "user").put("parts", partes))
 
-        ocupado = true
-        enviar.isEnabled = false
-        cargando.visibility = View.VISIBLE
-        scrollAbajo()
+        estadoOcupado(true)
 
         val modelos = if (modo == "base") listOf(BASE, RAPIDO) else listOf(RAPIDO)
         val modoUsado = modo
@@ -950,9 +1076,7 @@ class MainActivity : Activity() {
     }
 
     private fun manejarRespuesta(r: ResultadoApi, modoUsado: String) {
-        ocupado = false
-        enviar.isEnabled = true
-        cargando.visibility = View.GONE
+        estadoOcupado(false)
         val bruto = r.texto
         if (bruto != null) {
             val (limpio0, datos) = procesarRecuerdos(bruto)
@@ -982,10 +1106,7 @@ class MainActivity : Activity() {
     }
 
     private fun ejecutarOffline(texto: String) {
-        ocupado = true
-        enviar.isEnabled = false
-        cargando.visibility = View.VISIBLE
-        scrollAbajo()
+        estadoOcupado(true)
         val sis = sistemaOffline()
         Thread {
             var respuesta: String? = Offline.comandoSimple(texto, herramientas)
@@ -993,7 +1114,7 @@ class MainActivity : Activity() {
             var error: String? = null
             if (respuesta == null) {
                 if (!local.hayModelo()) {
-                    error = "No hay modelo sin conexión. Toca el botón Sin conexión para importarlo."
+                    error = "No hay modelo sin conexión. Toca la píldora de modo para importarlo."
                 } else {
                     val r = local.preguntar(texto, sis)
                     respuesta = r.first
@@ -1007,9 +1128,7 @@ class MainActivity : Activity() {
     }
 
     private fun terminarOffline(resp: String?, err: String?, simple: Boolean) {
-        ocupado = false
-        enviar.isEnabled = true
-        cargando.visibility = View.GONE
+        estadoOcupado(false)
         if (resp != null) {
             historial.put(
                 JSONObject().put("role", "model")
