@@ -56,7 +56,11 @@ private const val SISTEMA =
     "Eres Argón, el asistente personal de rafachafa, así lo llamas siempre. " +
     "Hablas español. Eres directo, serio y de pocas palabras: respuestas cortas y simples, " +
     "sin saludos exagerados, sin emojis y sin entusiasmo de más. " +
+    "Puedes usar formato Markdown simple (títulos con #, negritas con **, listas con -). " +
     "Eres un programador experto cuando te piden código. " +
+    "Para proyectos de varios archivos usa las herramientas de proyecto: cada vez que guardas un archivo " +
+    "se guarda una copia exacta de la versión anterior; si un cambio falla, usa proyecto_versiones y " +
+    "proyecto_restaurar. Antes de cambiar un archivo existente, léelo. " +
     "Tienes herramientas (conexiones) que rafachafa puede activar o desactivar: usa solo las que tengas disponibles. " +
     "Úsalas solo cuando él lo pida. Si una herramienta dice que falta un permiso, dile que lo acepte y repita la orden. " +
     "Si una herramienta no está disponible, dile que la active en el menú, en Conexiones. " +
@@ -91,6 +95,7 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: SharedPreferences
     private lateinit var herramientas: Herramientas
+    private lateinit var proyectos: Proyectos
     private lateinit var local: Local
     private lateinit var chat: LinearLayout
     private lateinit var scroll: ScrollView
@@ -115,6 +120,7 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("argon", MODE_PRIVATE)
         herramientas = Herramientas(this)
         herramientas.alImagen = { bytes -> mostrarImagen(bytes) }
+        proyectos = Proyectos(this)
         local = Local(applicationContext)
         modo = prefs.getString("modo", "base") ?: "base"
 
@@ -407,11 +413,16 @@ class MainActivity : Activity() {
     }
 
     private fun declaracionesActivas(): JSONArray {
-        val todas = herramientas.declaraciones()
         val activas = herramientasActivas()
         val out = JSONArray()
-        for (i in 0 until todas.length()) {
-            val d = todas.getJSONObject(i)
+        val base = herramientas.declaraciones()
+        for (i in 0 until base.length()) {
+            val d = base.getJSONObject(i)
+            if (d.getString("name") in activas) out.put(d)
+        }
+        val extra = proyectos.declaraciones()
+        for (i in 0 until extra.length()) {
+            val d = extra.getJSONObject(i)
             if (d.getString("name") in activas) out.put(d)
         }
         return out
@@ -461,6 +472,8 @@ class MainActivity : Activity() {
             val respondio = latch.await(60, TimeUnit.SECONDS)
             if (!respondio || !permitido) return "El usuario no dio permiso."
         }
+        val deProyecto = proyectos.ejecutar(n, a)
+        if (deProyecto != null) return deProyecto
         return herramientas.ejecutar(n, a)
     }
 
@@ -600,7 +613,7 @@ class MainActivity : Activity() {
                 val limpio = t.trim()
                 if (limpio.isEmpty()) continue
                 val tv = TextView(this)
-                tv.text = limpio
+                tv.text = Formato.render(limpio, cCodigo)
                 tv.textSize = 16f
                 tv.setTextColor(cTexto)
                 tv.setLineSpacing(0f, 1.15f)
@@ -915,7 +928,7 @@ class MainActivity : Activity() {
         prefs.edit().putString("ultimo", chatId).apply()
     }
 
-    private fun reconstruirChat() {
+        private fun reconstruirChat() {
         chat.removeAllViews()
         for (i in 0 until historial.length()) {
             val m = historial.getJSONObject(i)
