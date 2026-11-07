@@ -25,6 +25,13 @@ object Conexiones {
             "archivos", "Archivos y código (carpeta Descargas/Argon)",
             listOf("guardar_archivo", "listar_archivos", "leer_archivo", "borrar_archivo")
         ),
+        Conexion(
+            "proyectos", "Proyectos de código (varios archivos, con respaldo)",
+            listOf(
+                "proyecto_listar", "proyecto_leer", "proyecto_guardar", "proyecto_borrar",
+                "proyecto_versiones", "proyecto_restaurar", "proyecto_zip"
+            )
+        ),
         Conexion("portapapeles", "Portapapeles", listOf("leer_portapapeles", "copiar_portapapeles")),
         Conexion("internet", "Internet: buscar, leer páginas, Wikipedia", listOf("buscar_web", "abrir_pagina", "wikipedia")),
         Conexion("datos", "Clima, noticias, divisas y calculadora", listOf("clima", "noticias", "tipo_cambio", "calcular")),
@@ -41,6 +48,7 @@ object Conexiones {
         "leer_contactos", "llamar", "crear_contacto", "leer_sms", "ver_ubicacion",
         "guardar_archivo", "leer_archivo", "borrar_archivo", "listar_archivos",
         "ver_agenda", "leer_portapapeles", "borrar_nota", "borrar_rutina",
+        "proyecto_borrar", "proyecto_restaurar",
         "abrir_app", "abrir_enlace", "compartir_texto"
     )
 }
