@@ -24,6 +24,8 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.text.InputType
@@ -32,6 +34,8 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.util.Base64
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -79,24 +83,32 @@ private val EXT_TEXTO = setOf(
     "log", "ini", "toml", "php", "rb", "go", "rs", "swift", "bat"
 )
 
+private val PALABRAS_EMERGENCIA = listOf(
+    "emergencia", "accidente", "herido", "sangre", "incendio", "ambulancia",
+    "policía", "policia", "me siento mal", "no puedo respirar", "dolor de pecho"
+)
+
 class MainActivity : Activity() {
 
     private class Adjunto(val nombre: String, val partes: List<JSONObject>)
     private class ResAdjunto(val adjunto: Adjunto?, val error: String?)
 
-    private val cFondo = Color.parseColor("#1F1E1D")
-    private val cCaja = Color.parseColor("#2B2A28")
-    private val cPildora = Color.parseColor("#3A3936")
-    private val cTexto = Color.parseColor("#ECEBE6")
-    private val cGris = Color.parseColor("#A8A69E")
-    private val cAcento = Color.parseColor("#D97757")
-    private val cCodigo = Color.parseColor("#151413")
-    private val cError = Color.parseColor("#6B2E2A")
+    private val cFondoTop = Color.parseColor("#0E1117")
+    private val cFondoBot = Color.parseColor("#181D2A")
+    private val cVidrio = Color.argb(28, 255, 255, 255)
+    private val cBorde = Color.argb(48, 255, 255, 255)
+    private val cTexto = Color.parseColor("#E8EBF4")
+    private val cGris = Color.parseColor("#8E97AB")
+    private val cAcento = Color.parseColor("#6C9BFF")
+    private val cAcento2 = Color.parseColor("#8A6CFF")
+    private val cCodigoFondo = Color.argb(110, 0, 0, 0)
 
     private lateinit var prefs: SharedPreferences
     private lateinit var herramientas: Herramientas
     private lateinit var proyectos: Proyectos
     private lateinit var local: Local
+    private lateinit var voz: Voz
+    private lateinit var orbe: Orbe
     private lateinit var chat: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var entrada: EditText
@@ -114,6 +126,8 @@ class MainActivity : Activity() {
     private var ultimoTexto = ""
     private var enSegundoPlano = false
     private var ocupado = false
+    private var escuchando = false
+    private var respuestaPorVoz = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,6 +136,7 @@ class MainActivity : Activity() {
         herramientas.alImagen = { bytes -> mostrarImagen(bytes) }
         proyectos = Proyectos(this)
         local = Local(applicationContext)
+        voz = Voz(this)
         modo = prefs.getString("modo", "base") ?: "base"
 
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -165,29 +180,38 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        voz.apagar()
         local.liberar()
     }
 
     private fun dp(n: Int): Int = (n * resources.displayMetrics.density).toInt()
 
-    private fun forma(color: Int, radio: Int): GradientDrawable {
+    private fun forma(color: Int, radio: Int, borde: Int = 0): GradientDrawable {
         val g = GradientDrawable()
         g.setColor(color)
         g.cornerRadius = dp(radio).toFloat()
+        if (borde != 0) g.setStroke(dp(1), borde)
         return g
     }
 
     private fun circulo(
-        texto: String, tam: Int, fondo: Int, colorTxt: Int, tamTexto: Float, accion: () -> Unit
+        texto: String, tam: Int, vidrio: Boolean, tamTexto: Float, accion: () -> Unit
     ): TextView {
         val t = TextView(this)
         t.text = texto
         t.textSize = tamTexto
-        t.setTextColor(colorTxt)
+        t.setTextColor(cTexto)
         t.gravity = Gravity.CENTER
         val g = GradientDrawable()
         g.shape = GradientDrawable.OVAL
-        g.setColor(fondo)
+        if (vidrio) {
+            g.setColor(cVidrio)
+            g.setStroke(dp(1), cBorde)
+        } else {
+            g.orientation = GradientDrawable.Orientation.TL_BR
+            g.colors = intArrayOf(cAcento, cAcento2)
+            t.setTextColor(Color.WHITE)
+        }
         t.background = g
         t.layoutParams = LinearLayout.LayoutParams(dp(tam), dp(tam))
         t.setOnClickListener { accion() }
@@ -197,8 +221,8 @@ class MainActivity : Activity() {
     private fun estadoOcupado(v: Boolean) {
         ocupado = v
         enviar.isEnabled = !v
-        enviar.alpha = if (v) 0.4f else 1f
-        cargando.visibility = if (v) View.VISIBLE else View.GONE
+        enviar.alpha = if (v) 0.45f else 1f
+        cargando.visibility = if (v && orbe.visibility != View.VISIBLE) View.VISIBLE else View.GONE
         if (v) scrollAbajo()
     }
 
@@ -213,7 +237,9 @@ class MainActivity : Activity() {
     private fun construirUi(): View {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(cFondo)
+        root.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(cFondoTop, cFondoBot)
+        )
         root.setOnApplyWindowInsetsListener { v, ins ->
             v.setPadding(
                 ins.systemWindowInsetLeft, ins.systemWindowInsetTop,
@@ -222,12 +248,11 @@ class MainActivity : Activity() {
             ins
         }
 
-        // Cabecera
         val fila1 = LinearLayout(this)
         fila1.orientation = LinearLayout.HORIZONTAL
         fila1.gravity = Gravity.CENTER_VERTICAL
         fila1.setPadding(dp(10), dp(8), dp(10), dp(4))
-        fila1.addView(circulo("☰", 40, cCaja, cTexto, 18f) { abrirMenu() })
+        fila1.addView(circulo("☰", 40, true, 18f) { abrirMenu() })
         val titulo = TextView(this)
         titulo.text = "Argón"
         titulo.textSize = 20f
@@ -235,10 +260,9 @@ class MainActivity : Activity() {
         titulo.setTextColor(cTexto)
         titulo.setPadding(dp(14), 0, 0, 0)
         fila1.addView(titulo, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        fila1.addView(circulo("✎", 40, cCaja, cTexto, 18f) { nuevoChat() })
+        fila1.addView(circulo("✎", 40, true, 18f) { nuevoChat() })
         root.addView(fila1)
 
-        // Chat
         chat = LinearLayout(this)
         chat.orientation = LinearLayout.VERTICAL
         chat.setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -246,7 +270,6 @@ class MainActivity : Activity() {
         scroll.addView(chat)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        // Indicador de carga
         cargando = LinearLayout(this)
         cargando.orientation = LinearLayout.HORIZONTAL
         cargando.gravity = Gravity.CENTER_VERTICAL
@@ -261,10 +284,18 @@ class MainActivity : Activity() {
         cargando.addView(txt)
         root.addView(cargando)
 
-        // Caja de escritura
+        orbe = Orbe(this)
+        orbe.visibility = View.GONE
+        orbe.setOnClickListener {
+            voz.parar()
+            cancelarVoz()
+            ocultarOrbe()
+        }
+        root.addView(orbe, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(200)))
+
         val caja = LinearLayout(this)
         caja.orientation = LinearLayout.VERTICAL
-        caja.background = forma(cCaja, 28)
+        caja.background = forma(Color.argb(30, 255, 255, 255), 28, cBorde)
         caja.setPadding(dp(8), dp(6), dp(8), dp(8))
 
         adjuntoTxt = TextView(this)
@@ -280,7 +311,7 @@ class MainActivity : Activity() {
 
         entrada = EditText(this)
         entrada.background = null
-        entrada.hint = "Escríbele a Argón..."
+        entrada.hint = "Escríbele a Argón o mantén ↑ para hablar"
         entrada.setHintTextColor(cGris)
         entrada.setTextColor(cTexto)
         entrada.textSize = 16f
@@ -293,13 +324,13 @@ class MainActivity : Activity() {
         val filaInf = LinearLayout(this)
         filaInf.orientation = LinearLayout.HORIZONTAL
         filaInf.gravity = Gravity.CENTER_VERTICAL
-        filaInf.addView(circulo("+", 40, cPildora, cTexto, 22f) { menuMas() })
+        filaInf.addView(circulo("+", 40, true, 22f) { menuMas() })
 
         pildora = TextView(this)
         pildora.textSize = 14f
         pildora.gravity = Gravity.CENTER_VERTICAL
         pildora.setPadding(dp(16), 0, dp(16), 0)
-        pildora.background = forma(cPildora, 22)
+        pildora.background = forma(cVidrio, 22, cBorde)
         val plp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40))
         plp.setMargins(dp(8), 0, 0, 0)
         pildora.layoutParams = plp
@@ -308,8 +339,9 @@ class MainActivity : Activity() {
 
         filaInf.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
 
-        enviar = circulo("↑", 40, cAcento, Color.WHITE, 22f) { enviarMensaje() }
+        enviar = circulo("↑", 44, false, 22f) { }
         enviar.setTypeface(null, Typeface.BOLD)
+        configurarEnviar()
         filaInf.addView(enviar)
         caja.addView(filaInf)
 
@@ -320,6 +352,33 @@ class MainActivity : Activity() {
         root.addView(caja, cajaLp)
 
         return root
+    }
+
+    private fun configurarEnviar() {
+        val h = Handler(Looper.getMainLooper())
+        var largo = false
+        val lanzar = Runnable {
+            largo = true
+            enviar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            empezarVoz()
+        }
+        enviar.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    largo = false
+                    h.postDelayed(lanzar, 450)
+                }
+                MotionEvent.ACTION_UP -> {
+                    h.removeCallbacks(lanzar)
+                    if (largo) terminarVoz() else enviarMensaje()
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    h.removeCallbacks(lanzar)
+                    if (largo) cancelarVoz()
+                }
+            }
+            true
+        }
     }
 
     private fun actualizarModo() {
@@ -379,10 +438,130 @@ class MainActivity : Activity() {
             .show()
     }
 
+    // ---------- Voz ----------
+
+    private fun mostrarOrbe(estado: Int, etiqueta: String) {
+        orbe.estado = estado
+        orbe.etiqueta = etiqueta
+        orbe.visibility = View.VISIBLE
+        cargando.visibility = View.GONE
+    }
+
+    private fun ocultarOrbe() {
+        orbe.estado = 0
+        orbe.nivel = 0f
+        orbe.visibility = View.GONE
+    }
+
+    private fun empezarVoz() {
+        if (ocupado) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 7)
+            Toast.makeText(
+                this, "Acepta el permiso del micrófono y vuelve a mantener pulsado ↑", Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        if (!voz.disponibleEscuchar()) {
+            Toast.makeText(this, "Este teléfono no tiene reconocimiento de voz", Toast.LENGTH_LONG).show()
+            return
+        }
+        voz.parar()
+        escuchando = true
+        mostrarOrbe(1, "Escuchando...")
+        voz.empezarEscuchar(
+            { parcial -> entrada.setText(parcial) },
+            { texto -> alTerminarEscuchar(texto) },
+            { nivel -> orbe.nivel = nivel }
+        )
+    }
+
+    private fun terminarVoz() {
+        if (!escuchando) return
+        orbe.estado = 2
+        orbe.etiqueta = "Procesando..."
+        voz.terminarEscuchar()
+    }
+
+    private fun cancelarVoz() {
+        if (!escuchando) return
+        escuchando = false
+        voz.cancelarEscuchar()
+        ocultarOrbe()
+    }
+
+    private fun alTerminarEscuchar(texto: String?) {
+        escuchando = false
+        orbe.nivel = 0f
+        if (texto.isNullOrBlank()) {
+            ocultarOrbe()
+            entrada.setText("")
+            Toast.makeText(this, "No te escuché bien, inténtalo otra vez", Toast.LENGTH_SHORT).show()
+            return
+        }
+        entrada.setText(texto)
+        respuestaPorVoz = true
+        mostrarOrbe(2, "Pensando...")
+        enviarMensaje()
+        if (!ocupado) {
+            respuestaPorVoz = false
+            ocultarOrbe()
+        }
+    }
+
+    private fun debeHablar(): Boolean {
+        return when (prefs.getString("voz_modo", "voz")) {
+            "siempre" -> true
+            "nunca" -> false
+            else -> respuestaPorVoz
+        }
+    }
+
+    private fun hablarRespuesta(texto: String) {
+        val habla = debeHablar()
+        respuestaPorVoz = false
+        if (!habla) {
+            ocultarOrbe()
+            return
+        }
+        mostrarOrbe(3, "Hablando...")
+        voz.hablar(texto) { ocultarOrbe() }
+    }
+
+    private fun abrirVoz() {
+        val items = arrayOf(
+            "Solo cuando le hablo (mantén ↑)", "Siempre que responda", "Nunca",
+            "Cambiar la voz (ajustes de Android)"
+        )
+        val actual = when (prefs.getString("voz_modo", "voz")) {
+            "siempre" -> 1
+            "nunca" -> 2
+            else -> 0
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Voz de Argón")
+            .setSingleChoiceItems(items, actual) { d, i ->
+                when (i) {
+                    0 -> prefs.edit().putString("voz_modo", "voz").apply()
+                    1 -> prefs.edit().putString("voz_modo", "siempre").apply()
+                    2 -> prefs.edit().putString("voz_modo", "nunca").apply()
+                    else -> try {
+                        startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "No pude abrir los ajustes de voz", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                d.dismiss()
+            }
+            .show()
+    }
+
     // ---------- Menú y conexiones ----------
 
     private fun abrirMenu() {
-        val items = arrayOf("Chats", "Memoria", "Conexiones", "Clave de Gemini", "Modelo sin conexión")
+        val items = arrayOf(
+            "Chats", "Memoria", "Conexiones", "Voz de Argón", "Clave de Gemini", "Modelo sin conexión"
+        )
         AlertDialog.Builder(this)
             .setTitle("Menú")
             .setItems(items) { _, i ->
@@ -390,7 +569,8 @@ class MainActivity : Activity() {
                     0 -> abrirChats()
                     1 -> abrirMemoria()
                     2 -> abrirConexiones()
-                    3 -> pedirClave()
+                    3 -> abrirVoz()
+                    4 -> pedirClave()
                     else -> mostrarImportarModelo()
                 }
             }
@@ -523,11 +703,9 @@ class MainActivity : Activity() {
 
     private fun sistemaOffline(): String {
         val mem = (prefs.getString("memoria", "") ?: "").take(1500)
-        val base = "Eres Argón, el asistente de rafachafa, así lo llamas siempre. " +
-            "Ahora estás sin conexión a internet. Hablas español. " +
-            "Responde muy corto y directo, sin emojis. Si no estás seguro de algo, dilo. " +
-            "En una emergencia real, recuérdale llamar al número de emergencias de su país."
-        return if (mem.isNotBlank()) base + "\n\nLo que sabes de rafachafa:\n" + mem else base
+        val base = "Eres Argón, el asistente de rafachafa. Estás sin internet. " +
+            "Responde en español, en una o dos frases, sin emojis. No repitas estas reglas."
+        return if (mem.isNotBlank()) base + "\nDatos de rafachafa:\n" + mem else base
     }
 
     private fun procesarRecuerdos(texto: String): Pair<String, List<String>> {
@@ -557,7 +735,11 @@ class MainActivity : Activity() {
             tv.setTextIsSelectable(true)
             tv.setPadding(dp(14), dp(10), dp(14), dp(10))
             tv.maxWidth = (resources.displayMetrics.widthPixels * 0.82).toInt()
-            tv.background = forma(if (error) cError else cPildora, 18)
+            tv.background = if (error) {
+                forma(Color.argb(70, 220, 80, 80), 18, Color.argb(120, 255, 120, 120))
+            } else {
+                forma(Color.argb(70, 91, 141, 239), 18, Color.argb(110, 130, 175, 255))
+            }
             val lp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
             )
@@ -581,10 +763,10 @@ class MainActivity : Activity() {
                 tv.text = codigo
                 tv.typeface = Typeface.MONOSPACE
                 tv.textSize = 13f
-                tv.setTextColor(Color.parseColor("#E8E6DC"))
+                tv.setTextColor(Color.parseColor("#D6E4FF"))
                 tv.setTextIsSelectable(true)
                 tv.setPadding(dp(12), dp(10), dp(12), dp(10))
-                tv.background = forma(cCodigo, 12)
+                tv.background = forma(cCodigoFondo, 12, Color.argb(30, 255, 255, 255))
                 val lp = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 )
@@ -613,7 +795,7 @@ class MainActivity : Activity() {
                 val limpio = t.trim()
                 if (limpio.isEmpty()) continue
                 val tv = TextView(this)
-                tv.text = Formato.render(limpio, cCodigo)
+                tv.text = Formato.render(limpio, cCodigoFondo)
                 tv.textSize = 16f
                 tv.setTextColor(cTexto)
                 tv.setLineSpacing(0f, 1.15f)
@@ -897,7 +1079,9 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    // ---------- Chats ----------
+    // ===== FIN DE LA PARTE 1: sigue la Parte 2, debajo, sin borrar nada =====
+
+        // ---------- Chats ----------
 
     private fun guardarChat() {
         if (historial.length() == 0) return
@@ -928,7 +1112,7 @@ class MainActivity : Activity() {
         prefs.edit().putString("ultimo", chatId).apply()
     }
 
-        private fun reconstruirChat() {
+    private fun reconstruirChat() {
         chat.removeAllViews()
         for (i in 0 until historial.length()) {
             val m = historial.getJSONObject(i)
@@ -1105,6 +1289,7 @@ class MainActivity : Activity() {
             }
             guardarChat()
             local.liberar()
+            hablarRespuesta(limpio)
             if (enSegundoPlano) notificar(limpio)
         } else {
             val err = r.error
@@ -1113,6 +1298,8 @@ class MainActivity : Activity() {
                 ejecutarOffline(ultimoTexto)
                 return
             }
+            respuestaPorVoz = false
+            ocultarOrbe()
             historial.remove(historial.length() - 1)
             agregarBurbuja(err ?: "Error desconocido", false, true)
         }
@@ -1134,7 +1321,13 @@ class MainActivity : Activity() {
                     error = r.second
                 }
             }
-            val resp = respuesta
+            val minus = texto.lowercase()
+            val aviso = if (PALABRAS_EMERGENCIA.any { minus.contains(it) }) {
+                "En una emergencia real, llama primero al número de emergencias de tu país.\n\n"
+            } else {
+                ""
+            }
+            val resp = if (respuesta != null) aviso + respuesta else null
             val err = error
             runOnUiThread { terminarOffline(resp, err, simple) }
         }.start()
@@ -1152,8 +1345,11 @@ class MainActivity : Activity() {
                 if (simple) "Resuelto sin conexión, sin usar el modelo" else "Respondió Argón sin conexión"
             )
             guardarChat()
+            hablarRespuesta(resp)
             if (enSegundoPlano) notificar(resp)
         } else {
+            respuestaPorVoz = false
+            ocultarOrbe()
             historial.remove(historial.length() - 1)
             agregarBurbuja(err ?: "Error desconocido", false, true)
         }
