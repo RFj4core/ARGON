@@ -3,6 +3,7 @@ package com.argon.app
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.Dialog
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,7 +18,9 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -38,6 +41,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -56,6 +60,7 @@ import java.util.concurrent.TimeUnit
 private const val BASE = "gemini-flash-latest"
 private const val RAPIDO = "gemini-flash-lite-latest"
 private const val CANAL = "argon_respuestas"
+private const val GITHUB = "https://github.com/RFj4core/ARGON"
 private const val SISTEMA =
     "Eres Argón, el asistente personal de rafachafa, así lo llamas siempre. " +
     "Hablas español. Eres directo, serio y de pocas palabras: respuestas cortas y simples, " +
@@ -90,7 +95,7 @@ private val PALABRAS_EMERGENCIA = listOf(
 
 class MainActivity : Activity() {
 
-    private class Adjunto(val nombre: String, val partes: List<JSONObject>)
+    private class Adjunto(val nombre: String, val partes: List<JSONObject>, val mini: Bitmap?)
     private class ResAdjunto(val adjunto: Adjunto?, val error: String?)
 
     private val cFondoTop = Color.parseColor("#0E1117")
@@ -128,6 +133,7 @@ class MainActivity : Activity() {
     private var ocupado = false
     private var escuchando = false
     private var respuestaPorVoz = false
+    private var animar = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -160,12 +166,14 @@ class MainActivity : Activity() {
         }
         if ((prefs.getString("clave", "") ?: "").isEmpty()) pedirClave()
         procesarCompartido(intent)
+        procesarRutina(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         procesarCompartido(intent)
+        procesarRutina(intent)
     }
 
     override fun onPause() {
@@ -194,6 +202,13 @@ class MainActivity : Activity() {
         return g
     }
 
+    private fun animarEntrada(v: View) {
+        if (!animar) return
+        v.alpha = 0f
+        v.translationY = dp(14).toFloat()
+        v.animate().alpha(1f).translationY(0f).setDuration(240).start()
+    }
+
     private fun circulo(
         texto: String, tam: Int, vidrio: Boolean, tamTexto: Float, accion: () -> Unit
     ): TextView {
@@ -214,7 +229,12 @@ class MainActivity : Activity() {
         }
         t.background = g
         t.layoutParams = LinearLayout.LayoutParams(dp(tam), dp(tam))
-        t.setOnClickListener { accion() }
+        t.setOnClickListener {
+            it.animate().scaleX(0.88f).scaleY(0.88f).setDuration(70).withEndAction {
+                it.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            }.start()
+            accion()
+        }
         return t
     }
 
@@ -232,6 +252,12 @@ class MainActivity : Activity() {
         val caps = cm.getNetworkCapabilities(net) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun limpiarAdjunto() {
+        adjunto = null
+        adjuntoTxt.visibility = View.GONE
+        adjuntoTxt.setCompoundDrawables(null, null, null, null)
     }
 
     private fun construirUi(): View {
@@ -301,12 +327,10 @@ class MainActivity : Activity() {
         adjuntoTxt = TextView(this)
         adjuntoTxt.textSize = 13f
         adjuntoTxt.setTextColor(cAcento)
+        adjuntoTxt.gravity = Gravity.CENTER_VERTICAL
         adjuntoTxt.setPadding(dp(10), dp(6), dp(10), dp(2))
         adjuntoTxt.visibility = View.GONE
-        adjuntoTxt.setOnClickListener {
-            adjunto = null
-            adjuntoTxt.visibility = View.GONE
-        }
+        adjuntoTxt.setOnClickListener { limpiarAdjunto() }
         caja.addView(adjuntoTxt)
 
         entrada = EditText(this)
@@ -366,13 +390,16 @@ class MainActivity : Activity() {
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     largo = false
+                    enviar.animate().scaleX(0.9f).scaleY(0.9f).setDuration(80).start()
                     h.postDelayed(lanzar, 450)
                 }
                 MotionEvent.ACTION_UP -> {
+                    enviar.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                     h.removeCallbacks(lanzar)
                     if (largo) terminarVoz() else enviarMensaje()
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    enviar.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                     h.removeCallbacks(lanzar)
                     if (largo) cancelarVoz()
                 }
@@ -441,16 +468,29 @@ class MainActivity : Activity() {
     // ---------- Voz ----------
 
     private fun mostrarOrbe(estado: Int, etiqueta: String) {
+        orbe.animate().cancel()
         orbe.estado = estado
         orbe.etiqueta = etiqueta
-        orbe.visibility = View.VISIBLE
+        if (orbe.visibility != View.VISIBLE || orbe.alpha < 1f) {
+            if (orbe.visibility != View.VISIBLE) {
+                orbe.alpha = 0f
+                orbe.scaleX = 0.85f
+                orbe.scaleY = 0.85f
+                orbe.visibility = View.VISIBLE
+            }
+            orbe.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220).start()
+        }
         cargando.visibility = View.GONE
     }
 
     private fun ocultarOrbe() {
         orbe.estado = 0
         orbe.nivel = 0f
-        orbe.visibility = View.GONE
+        if (orbe.visibility == View.VISIBLE) {
+            orbe.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(180).withEndAction {
+                orbe.visibility = View.GONE
+            }.start()
+        }
     }
 
     private fun empezarVoz() {
@@ -559,22 +599,18 @@ class MainActivity : Activity() {
     // ---------- Menú y conexiones ----------
 
     private fun abrirMenu() {
-        val items = arrayOf(
-            "Chats", "Memoria", "Conexiones", "Voz de Argón", "Clave de Gemini", "Modelo sin conexión"
+        Panel.abrir(
+            this,
+            listOf(
+                Panel.Item("Chats", "Tus conversaciones") { abrirChats() },
+                Panel.Item("Memoria", "Lo que Argón recuerda") { abrirMemoria() },
+                Panel.Item("Conexiones", "Apps y herramientas") { abrirConexiones() },
+                Panel.Item("Voz de Argón", "Cuándo habla") { abrirVoz() },
+                Panel.Item("Clave de Gemini", "Tu llave de API") { pedirClave() },
+                Panel.Item("Modelo sin conexión", "IA dentro del teléfono") { mostrarImportarModelo() }
+            ),
+            GITHUB
         )
-        AlertDialog.Builder(this)
-            .setTitle("Menú")
-            .setItems(items) { _, i ->
-                when (i) {
-                    0 -> abrirChats()
-                    1 -> abrirMemoria()
-                    2 -> abrirConexiones()
-                    3 -> abrirVoz()
-                    4 -> pedirClave()
-                    else -> mostrarImportarModelo()
-                }
-            }
-            .show()
     }
 
     private fun conexionesActivas(): Set<String> {
@@ -747,16 +783,41 @@ class MainActivity : Activity() {
             lp.gravity = if (usuario) Gravity.END else Gravity.START
             tv.layoutParams = lp
             chat.addView(tv)
+            animarEntrada(tv)
         } else {
             agregarRespuesta(texto)
         }
         scrollAbajo()
     }
 
+    private fun accionTexto(texto: String, accion: () -> Unit): TextView {
+        val t = TextView(this)
+        t.text = texto
+        t.textSize = 13f
+        t.setTextColor(cAcento)
+        t.setPadding(dp(12), dp(6), dp(12), dp(6))
+        t.setOnClickListener { accion() }
+        return t
+    }
+
+    private fun vistaPreviaCodigo(codigo: String, lang: String) {
+        val esSvg = lang == "svg" || codigo.trimStart().startsWith("<svg")
+        val html = if (esSvg) {
+            "<body style='margin:0;background:#fff;display:flex;align-items:center;" +
+                "justify-content:center;min-height:100vh'>$codigo</body>"
+        } else {
+            codigo
+        }
+        val i = Intent(this, VistaPreviaActivity::class.java)
+        i.putExtra("html", html.take(200000))
+        startActivity(i)
+    }
+
     private fun agregarRespuesta(texto: String) {
         val trozos = texto.split("```")
         for ((i, t) in trozos.withIndex()) {
             if (i % 2 == 1) {
+                val lang = if (t.contains("\n")) t.substringBefore("\n").trim().lowercase() else ""
                 val codigo = t.substringAfter("\n", t).trimEnd()
                 if (codigo.isEmpty()) continue
                 val tv = TextView(this)
@@ -773,24 +834,27 @@ class MainActivity : Activity() {
                 lp.setMargins(dp(6), dp(6), dp(6), 0)
                 tv.layoutParams = lp
                 chat.addView(tv)
+                animarEntrada(tv)
 
-                val copiar = TextView(this)
-                copiar.text = "Copiar"
-                copiar.textSize = 13f
-                copiar.setTextColor(cAcento)
-                copiar.setPadding(dp(12), dp(6), dp(12), dp(6))
-                copiar.setOnClickListener {
+                val fila = LinearLayout(this)
+                fila.orientation = LinearLayout.HORIZONTAL
+                fila.gravity = Gravity.END
+                val ini = codigo.trimStart().lowercase()
+                if (lang == "html" || lang == "svg" || ini.startsWith("<svg") || ini.startsWith("<!doctype html")) {
+                    fila.addView(accionTexto("Vista previa") { vistaPreviaCodigo(codigo, lang) })
+                }
+                fila.addView(accionTexto("Copiar") {
                     val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("Argón", codigo))
                     Toast.makeText(this, "Código copiado", Toast.LENGTH_SHORT).show()
-                }
-                val clp = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                })
+                val flp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 )
-                clp.gravity = Gravity.END
-                clp.setMargins(dp(6), 0, dp(6), dp(6))
-                copiar.layoutParams = clp
-                chat.addView(copiar)
+                flp.setMargins(dp(6), 0, dp(6), dp(6))
+                fila.layoutParams = flp
+                chat.addView(fila)
+                animarEntrada(fila)
             } else {
                 val limpio = t.trim()
                 if (limpio.isEmpty()) continue
@@ -808,6 +872,7 @@ class MainActivity : Activity() {
                 lp.setMargins(dp(4), dp(4), dp(4), dp(4))
                 tv.layoutParams = lp
                 chat.addView(tv)
+                animarEntrada(tv)
             }
         }
     }
@@ -819,7 +884,19 @@ class MainActivity : Activity() {
         tv.setTextColor(cGris)
         tv.setPadding(dp(10), 0, dp(10), dp(4))
         chat.addView(tv)
+        animarEntrada(tv)
         scrollAbajo()
+    }
+
+    private fun verImagen(bmp: Bitmap) {
+        val d = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val iv = ImageView(this)
+        iv.setImageBitmap(bmp)
+        iv.scaleType = ImageView.ScaleType.FIT_CENTER
+        iv.setBackgroundColor(Color.BLACK)
+        iv.setOnClickListener { d.dismiss() }
+        d.setContentView(iv)
+        d.show()
     }
 
     private fun mostrarImagen(bytes: ByteArray) {
@@ -827,12 +904,20 @@ class MainActivity : Activity() {
         val iv = ImageView(this)
         iv.setImageBitmap(bmp)
         iv.adjustViewBounds = true
+        iv.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, dp(16).toFloat())
+            }
+        }
+        iv.clipToOutline = true
+        iv.setOnClickListener { verImagen(bmp) }
         val lp = LinearLayout.LayoutParams(
             (resources.displayMetrics.widthPixels * 0.8).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT
         )
         lp.setMargins(dp(8), dp(6), dp(8), dp(6))
         iv.layoutParams = lp
         chat.addView(iv)
+        animarEntrada(iv)
         scrollAbajo()
     }
 
@@ -840,7 +925,7 @@ class MainActivity : Activity() {
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
 
-    // ---------- Archivos, cámara y compartir ----------
+    // ---------- Archivos, cámara, compartir y rutinas ----------
 
     private fun adjuntar() {
         val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
@@ -919,6 +1004,15 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun procesarRutina(i: Intent?) {
+        if (i == null) return
+        val r = i.getStringExtra("rutina") ?: return
+        setIntent(Intent(Intent.ACTION_MAIN))
+        agregarNota("Rutina programada: $r")
+        entrada.setText("Ejecuta mi rutina $r")
+        if (!ocupado) enviarMensaje()
+    }
+
     private fun cargarAdjunto(uri: Uri) {
         Thread {
             val r = leerAdjunto(uri)
@@ -927,6 +1021,15 @@ class MainActivity : Activity() {
                 if (a != null) {
                     adjunto = a
                     adjuntoTxt.text = "Adjunto: ${a.nombre} (toca para quitar)"
+                    val mini = a.mini
+                    if (mini != null) {
+                        val bd = BitmapDrawable(resources, mini)
+                        bd.setBounds(0, 0, dp(48), dp(48))
+                        adjuntoTxt.setCompoundDrawables(bd, null, null, null)
+                        adjuntoTxt.compoundDrawablePadding = dp(10)
+                    } else {
+                        adjuntoTxt.setCompoundDrawables(null, null, null, null)
+                    }
                     adjuntoTxt.visibility = View.VISIBLE
                 } else {
                     Toast.makeText(this, r.error ?: "No se pudo leer el archivo", Toast.LENGTH_LONG).show()
@@ -948,6 +1051,23 @@ class MainActivity : Activity() {
             val out = ByteArrayOutputStream()
             bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
             out.toByteArray()
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    private fun miniatura(bytes: ByteArray): Bitmap? {
+        return try {
+            val o = BitmapFactory.Options()
+            o.inJustDecodeBounds = true
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+            var m = 1
+            while (o.outWidth / m > 240 || o.outHeight / m > 240) m *= 2
+            val o2 = BitmapFactory.Options()
+            o2.inSampleSize = m
+            val b = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o2) ?: return null
+            val s = minOf(b.width, b.height)
+            Bitmap.createBitmap(b, (b.width - s) / 2, (b.height - s) / 2, s, s)
         } catch (e: Throwable) {
             null
         }
@@ -984,7 +1104,7 @@ class MainActivity : Activity() {
                     aviso = "\n[...archivo cortado por tamaño...]"
                 }
                 val parte = JSONObject().put("text", "Archivo adjunto: $nombre\n$t$aviso")
-                return ResAdjunto(Adjunto(nombre, listOf(parte)), null)
+                return ResAdjunto(Adjunto(nombre, listOf(parte), null), null)
             }
 
             val mimeFinal = when {
@@ -1005,7 +1125,8 @@ class MainActivity : Activity() {
             val p2 = JSONObject().put(
                 "inline_data", JSONObject().put("mime_type", mimeEnvio).put("data", b64)
             )
-            return ResAdjunto(Adjunto(nombre, listOf(p1, p2)), null)
+            val mini = if (esImagen) miniatura(datos) else null
+            return ResAdjunto(Adjunto(nombre, listOf(p1, p2), mini), null)
         } catch (e: Exception) {
             return ResAdjunto(null, "Error al leer el archivo: ${e.message}")
         }
@@ -1080,7 +1201,6 @@ class MainActivity : Activity() {
     }
 
     // ===== FIN DE LA PARTE 1: sigue la Parte 2, debajo, sin borrar nada =====
-
         // ---------- Chats ----------
 
     private fun guardarChat() {
@@ -1113,6 +1233,7 @@ class MainActivity : Activity() {
     }
 
     private fun reconstruirChat() {
+        animar = false
         chat.removeAllViews()
         for (i in 0 until historial.length()) {
             val m = historial.getJSONObject(i)
@@ -1130,6 +1251,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        animar = true
     }
 
     private fun cargarChat(id: String) {
@@ -1139,8 +1261,7 @@ class MainActivity : Activity() {
             chatId = id
             tituloChat = o.optString("titulo", "Chat")
             prefs.edit().putString("ultimo", id).apply()
-            adjunto = null
-            adjuntoTxt.visibility = View.GONE
+            limpiarAdjunto()
             reconstruirChat()
         } catch (e: Exception) {
             Toast.makeText(this, "No pude abrir ese chat", Toast.LENGTH_SHORT).show()
@@ -1155,8 +1276,7 @@ class MainActivity : Activity() {
         historial = JSONArray()
         chatId = ""
         tituloChat = ""
-        adjunto = null
-        adjuntoTxt.visibility = View.GONE
+        limpiarAdjunto()
         prefs.edit().putString("ultimo", "").apply()
         chat.removeAllViews()
         agregarBurbuja("Chat nuevo. Listo, rafachafa.", false)
@@ -1240,8 +1360,7 @@ class MainActivity : Activity() {
         val texto = if (texto0.isEmpty()) "Analiza este archivo." else texto0
         ultimoTexto = texto0
         entrada.setText("")
-        adjunto = null
-        adjuntoTxt.visibility = View.GONE
+        limpiarAdjunto()
         if (historial.length() == 0) {
             tituloChat = if (texto0.isNotEmpty()) texto0.take(40) else "Archivo: " + (adj?.nombre ?: "")
         }
