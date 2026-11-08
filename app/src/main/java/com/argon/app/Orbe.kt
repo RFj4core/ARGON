@@ -48,7 +48,6 @@ class Orbe(ctx: Context) : View(ctx) {
             val y = 1f - 2f * (i + 0.5f) / total
             val r = sqrt(1f - y * y)
             val phi = i * dorado
-            // Forma esférica irregular con variaciones suaves
             val ruido = 0.85f + rnd.nextFloat() * 0.25f
             x0[i] = cos(phi) * r * 0.9f * ruido
             y0[i] = y * 0.9f * ruido
@@ -68,7 +67,8 @@ class Orbe(ctx: Context) : View(ctx) {
 
         pLinea.style = Paint.Style.STROKE
         pLinea.strokeCap = Paint.Cap.ROUND
-        pTxt.color = Color.parseColor("#B8D4FF")
+        pNodo.style = Paint.Style.FILL
+        pTxt.color = Color.parseColor("#D8C8FF")
         pTxt.textAlign = Paint.Align.CENTER
         pTxt.textSize = dp(13f)
     }
@@ -104,19 +104,23 @@ class Orbe(ctx: Context) : View(ctx) {
         val cX = cos(angX)
         val sX = sin(angX)
 
-        // Sin burbuja ni aro exterior, solo el brillo ambiental difuso
+        // Interpolación de color de Azul a Morado según la energía/voz
+        val rojoBase = (61 + (150 - 61) * energia.coerceIn(0f, 1f)).toInt()
+        val verdeBase = (123 + (50 - 123) * energia.coerceIn(0f, 1f)).toInt()
+        val azulBase = (234 + (220 - 234) * energia.coerceIn(0f, 1f)).toInt()
+
+        // Fondo difuso dinámico
         pFondo.shader = RadialGradient(
             cx, cy, radio * 1.2f,
             intArrayOf(
-                Color.argb((40 + 60 * energia).toInt().coerceIn(0, 180), 61, 123, 234),
-                Color.argb(0, 61, 123, 234)
+                Color.argb((40 + 60 * energia).toInt().coerceIn(0, 180), rojoBase, verdeBase, azulBase),
+                Color.argb(0, rojoBase, verdeBase, azulBase)
             ),
             floatArrayOf(0.4f, 1f), Shader.TileMode.CLAMP
         )
         c.drawCircle(cx, cy, radio * 1.2f, pFondo)
 
         for (i in 0 until n) {
-            // Movimiento ondulatorio interno dinámico para simular conexiones variables
             val pulsoCelular = sin(t * 2.5 + i * 1.5).toFloat() * 0.08f * (1f + energia)
             val bx = x0[i] * (1f + pulsoCelular)
             val by = y0[i] * (1f + pulsoCelular)
@@ -144,7 +148,7 @@ class Orbe(ctx: Context) : View(ctx) {
             orden[j + 1] = v
         }
 
-        // Conexiones dinámicas basadas en proximidad variable en tiempo real
+        // Conexiones dinámicas conectándose y desconectándose
         for (i in 0 until n) {
             for (j in i + 1 until n) {
                 val dx = sx[i] - sx[j]
@@ -155,11 +159,10 @@ class Orbe(ctx: Context) : View(ctx) {
                 if (distSq < umbralDist) {
                     val factorDist = 1f - (sqrt(distSq) / dp(75f))
                     val prof = (((sz[i] + sz[j]) / 2f) + 1f) / 2f
-                    // Animación de parpadeo para conectar y desconectar dinámicamente
                     val enlaceActivo = sin(t * 3.0 + i + j).toFloat()
                     if (enlaceActivo > -0.2f) {
                         val alfa = (40 * factorDist * prof * (0.4f + energia * 0.6f)).toInt().coerceIn(0, 200)
-                        pLinea.color = Color.argb(alfa, 140, 200, 255)
+                        pLinea.color = Color.argb(alfa, rojoBase + 20, verdeBase + 30, 255)
                         pLinea.strokeWidth = dp(0.8f) * prof
                         c.drawLine(sx[i], sy[i], sx[j], sy[j], pLinea)
                     }
@@ -167,15 +170,15 @@ class Orbe(ctx: Context) : View(ctx) {
             }
         }
 
-        // Dibujar nodos (células) más delgados y estilizados
+        // Nodos dibujados como pequeños cuadrados (puntos cuadrados) destellantes
         for (idx in 0 until n) {
             val i = orden[idx]
             val prof = (sz[i] + 1f) / 2f
-            val pulso = 0.5f + 0.5f * sin(t * 4.0 + i).toFloat()
-            val r = (dp(0.8f) + dp(1.2f * pulso * (0.5f + energia))) * ss[i]
+            val destello = 0.4f + 0.6f * sin(t * 5.0 + i * 2.0).toFloat()
+            val lado = (dp(1.2f) + dp(1.5f * destello * (0.5f + energia))) * ss[i]
             
-            pNodo.color = Color.argb((40 + 160 * prof * energia).toInt().coerceIn(0, 255), 180, 220, 255)
-            c.drawCircle(sx[i], sy[i], r, pNodo)
+            pNodo.color = Color.argb((50 + 180 * prof * energia).toInt().coerceIn(0, 255), rojoBase + 40, verdeBase + 40, 255)
+            c.drawRect(sx[i] - lado, sy[i] - lado, sx[i] + lado, sy[i] + lado, pNodo)
         }
 
         if (etiqueta.isNotEmpty()) c.drawText(etiqueta, cx, h - dp(8f), pTxt)
