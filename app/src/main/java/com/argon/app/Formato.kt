@@ -1,12 +1,15 @@
 package com.argon.app
 
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 
@@ -24,10 +27,45 @@ object Formato {
 
     private const val FLAG = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
 
+    class MathLayoutSpan(private val numerador: String, private val denominador: String, private val esFraccion: Boolean = true) : ReplacementSpan() {
+        override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
+            val p = Paint(paint).apply { 
+                textSize = paint.textSize * 0.8f 
+                typeface = Typeface.MONOSPACE
+            }
+            val wNum = p.measureText(numerador)
+            val wDen = p.measureText(denominador)
+            return maxOf(wNum, wDen).toInt() + 16
+        }
+
+        override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+            val p = Paint(paint).apply { 
+                textSize = paint.textSize * 0.8f 
+                typeface = Typeface.MONOSPACE
+                color = Color.parseColor("#A8D1FF")
+            }
+            val wNum = p.measureText(numerador)
+            val wDen = p.measureText(denominador)
+            val maxW = maxOf(wNum, wDen)
+            val centro = x + maxW / 2f + 8f
+
+            if (esFraccion) {
+                canvas.drawText(numerador, centro - wNum / 2f, y.toFloat() - paint.textSize * 0.3f, p)
+                canvas.drawLine(x, y.toFloat() + 2f, x + maxW + 16f, y.toFloat() + 2f, p)
+                canvas.drawText(denominador, centro - wDen / 2f, y.toFloat() + paint.textSize * 0.9f, p)
+            } else {
+                val sub = denominador
+                val sup = numerador
+                canvas.drawText(sup, centro - p.measureText(sup) / 2f, y.toFloat() - paint.textSize * 0.5f, p)
+                canvas.drawText("∑", centro - p.measureText("∑") / 2f, y.toFloat() + paint.textSize * 0.2f, p)
+                canvas.drawText(sub, centro - p.measureText(sub) / 2f, y.toFloat() + paint.textSize * 0.9f, p)
+            }
+        }
+    }
+
     private fun convertirLatex(latex: String): String {
         var s = latex
         
-        // Símbolos griegos completos (minúsculas y mayúsculas)
         s = s.replace("\\alpha", "α")
         s = s.replace("\\beta", "β")
         s = s.replace("\\gamma", "γ")
@@ -64,7 +102,6 @@ object Formato {
         s = s.replace("\\Psi", "Ψ")
         s = s.replace("\\Omega", "Ω")
 
-        // Símbolos matemáticos y operadores avanzados
         s = s.replace("\\pm", "±")
         s = s.replace("\\mp", "∓")
         s = s.replace("\\times", "×")
@@ -124,8 +161,6 @@ object Formato {
         s = s.replace("\\Leftrightarrow", "⇔")
         s = s.replace("\\mapsto", "↦")
 
-        // Operadores grandes
-        s = s.replace("\\sum", "∑")
         s = s.replace("\\prod", "∏")
         s = s.replace("\\coprod", "∐")
         s = s.replace("\\int", "∫")
@@ -133,7 +168,6 @@ object Formato {
         s = s.replace("\\iiint", "∭")
         s = s.replace("\\oint", "∮")
 
-        // Funciones y operadores matemáticos
         s = s.replace("\\sin", "sen")
         s = s.replace("\\cos", "cos")
         s = s.replace("\\tan", "tan")
@@ -167,18 +201,12 @@ object Formato {
         s = s.replace("\\varepsilon_0", "ε₀")
         s = s.replace("\\mu_0", "μ₀")
 
-        // Fracciones
-        val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
-        s = fracRegex.replace(s) { match -> "(${match.groupValues[1]} / ${match.groupValues[2]})" }
-
-        // Raíces enésimas y cuadradas
         val sqrtNRegex = Regex("\\\\sqrt\\[([^\\]]+)\\]\\{([^}]+)\\}")
         s = sqrtNRegex.replace(s) { match -> "(${match.groupValues[1]})√(${match.groupValues[2]})" }
 
         val sqrtRegex = Regex("\\\\sqrt\\{([^}]+)\\}")
         s = sqrtRegex.replace(s) { match -> "√(${match.groupValues[1]})" }
 
-        // Superíndices
         val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ωεϕψρφθ])\\^([0-9n+-]+)")
         s = supRegex.replace(s) { match ->
             val base = match.groupValues[1]
@@ -204,7 +232,6 @@ object Formato {
             "$base$supExp"
         }
 
-        // Subíndices
         val subRegex = Regex("([a-zA-Zα-ωΑ-Ωθ])_([0-9ni])")
         s = subRegex.replace(s) { match ->
             val base = match.groupValues[1]
@@ -227,7 +254,6 @@ object Formato {
             "$base$subChar"
         }
 
-        s = s.replace("{", "").replace("}", "")
         return s
     }
 
@@ -249,15 +275,32 @@ object Formato {
         while (true) {
             val m = reMath.find(sb) ?: break
             val original = m.groupValues[1]
-            val convertido = convertirLatex(original)
             val ini = m.range.first
             val fin = m.range.last + 1
             sb.delete(fin - 1, fin)
             sb.delete(ini, ini + 1)
-            val realFin = ini + convertido.length
-            sb.replace(ini, realFin, convertido)
-            sb.setSpan(TypefaceSpan("monospace"), ini, realFin, FLAG)
-            sb.setSpan(ForegroundColorSpan(Color.parseColor("#A8D1FF")), ini, realFin, FLAG)
+
+            val fracMatch = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}").find(original)
+            val sumMatch = Regex("\\\\sum(?:\\\\limits)?_\\{([^}]+)\\}").find(original)
+
+            if (fracMatch != null) {
+                val num = convertirLatex(fracMatch.groupValues[1])
+                val den = convertirLatex(fracMatch.groupValues[2])
+                val span = MathLayoutSpan(num, den, true)
+                sb.replace(ini, ini + fracMatch.value.length, "   ")
+                sb.setSpan(span, ini, ini + 3, FLAG)
+            } else if (sumMatch != null) {
+                val sub = sumMatch.groupValues[1]
+                val span = MathLayoutSpan("", sub, false)
+                sb.replace(ini, ini + sumMatch.value.length, "   ")
+                sb.setSpan(span, ini, ini + 3, FLAG)
+            } else {
+                val convertido = convertirLatex(original)
+                val realFin = ini + convertido.length
+                sb.replace(ini, realFin, convertido)
+                sb.setSpan(TypefaceSpan("monospace"), ini, realFin, FLAG)
+                sb.setSpan(ForegroundColorSpan(Color.parseColor("#A8D1FF")), ini, realFin, FLAG)
+            }
         }
 
         aplicar(sb, reCodigo, 1) {
