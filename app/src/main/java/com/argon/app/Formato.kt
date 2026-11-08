@@ -9,10 +9,12 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
+import android.text.style.SuperscriptSpan
 
 object Formato {
 
     private val reCodigo = Regex("`([^`\\n]+)`")
+    private val reMath = Regex("\\$([^$\\n]+)\\$")
     private val reNegrita = Regex("\\*\\*(?!\\s)(.+?)(?<!\\s)\\*\\*")
     private val reCursiva = Regex("(?<![\\w*])\\*(?!\\s)([^*\\n]+?)(?<!\\s)\\*(?![\\w*])")
     private val reEnlace = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)")
@@ -37,6 +39,15 @@ object Formato {
     private fun linea(texto: String, fondoCodigo: Int): SpannableStringBuilder {
         val t = reEnlace.replace(texto) { it.groupValues[1] + " (" + it.groupValues[2] + ")" }
         val sb = SpannableStringBuilder(t)
+        
+        // Soporte para fórmulas matemáticas en línea con $...$
+        aplicar(sb, reMath, 1) {
+            listOf(
+                TypefaceSpan("monospace"),
+                ForegroundColorSpan(Color.parseColor("#A8D1FF"))
+            )
+        }
+
         aplicar(sb, reCodigo, 1) {
             listOf(
                 TypefaceSpan("monospace"),
