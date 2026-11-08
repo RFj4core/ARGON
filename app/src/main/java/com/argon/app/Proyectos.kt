@@ -18,6 +18,7 @@ import java.util.zip.ZipOutputStream
 class Proyectos(private val act: Activity) {
 
     private val raiz = "Download/Argon/proyectos/"
+    private val extras = Extras(act)
 
     private fun tStr(desc: String) = JSONObject().put("type", "string").put("description", desc)
 
@@ -59,11 +60,13 @@ class Proyectos(private val act: Activity) {
             listOf("proyecto", "ruta", "version")))
         a.put(decl("proyecto_zip", "Empaqueta el proyecto en un .zip en Descargas/Argon.",
             pr("proyecto" to proy), listOf("proyecto")))
+        val ex = extras.declaraciones()
+        for (i in 0 until ex.length()) a.put(ex.get(i))
         return a
     }
 
     fun ejecutar(nombre: String, a: JSONObject): String? {
-        if (!nombre.startsWith("proyecto_")) return null
+        if (!nombre.startsWith("proyecto_")) return extras.ejecutar(nombre, a)
         if (Build.VERSION.SDK_INT < 29) return "Este Android es muy viejo para los proyectos"
         return try {
             when (nombre) {
@@ -83,6 +86,15 @@ class Proyectos(private val act: Activity) {
         } catch (e: Exception) {
             "Error en $nombre: ${e.message}"
         }
+    }
+
+    fun leerTexto(proyecto: String, ruta: String): String? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        val p = limpioSeg(proyecto)
+        val segs = partes(ruta) ?: return null
+        val uri = buscar(relPath(p, segs.dropLast(1), false), segs.last()) ?: return null
+        val bytes = leerBytes(uri) ?: return null
+        return String(bytes, Charsets.UTF_8)
     }
 
     // ---------- Utilidades ----------
