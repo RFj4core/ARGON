@@ -219,12 +219,30 @@ object Visuales {
 
     fun envolverHtml(codigo: String, lang: String): String {
         val esSvg = lang == "svg" || codigo.trimStart().startsWith("<svg")
-        return if (esSvg) {
+        val base = if (esSvg) {
             "<body style='margin:0;background:#fff;display:flex;align-items:center;" +
                 "justify-content:center;min-height:100vh'>$codigo</body>"
         } else {
             codigo
         }
+        return conMotor3D(base)
+    }
+
+    // Si el HTML usa Argon3D, le agrega el motor 3D incluido en la app (no necesita internet).
+    fun conMotor3D(html: String): String {
+        if (!html.contains("Argon3D")) return html
+        val tag = "<script>" + Motor3D.JS + "</script>"
+        val cabeza = Regex("<head[^>]*>", RegexOption.IGNORE_CASE).find(html)
+        if (cabeza != null) {
+            val i = cabeza.range.last + 1
+            return html.substring(0, i) + tag + html.substring(i)
+        }
+        val raiz = Regex("<html[^>]*>", RegexOption.IGNORE_CASE).find(html)
+        if (raiz != null) {
+            val i = raiz.range.last + 1
+            return html.substring(0, i) + tag + html.substring(i)
+        }
+        return tag + html
     }
 
     class CajaHtml(val vista: View, val web: WebView, val html: String)
