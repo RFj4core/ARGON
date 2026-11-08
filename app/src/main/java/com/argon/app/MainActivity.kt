@@ -14,7 +14,6 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -45,7 +44,6 @@ import android.view.ViewOutlineProvider
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -301,13 +299,14 @@ class MainActivity : Activity() {
         cargando.gravity = Gravity.CENTER_VERTICAL
         cargando.setPadding(dp(16), dp(4), dp(16), dp(4))
         cargando.visibility = View.GONE
-        val rueda = ProgressBar(this)
-        rueda.indeterminateTintList = ColorStateList.valueOf(cAcento)
-        cargando.addView(rueda, LinearLayout.LayoutParams(dp(22), dp(22)))
         val txt = TextView(this)
-        txt.text = "  Argón pensando..."
+        txt.text = "Argón pensando"
         txt.setTextColor(cGris)
         cargando.addView(txt)
+        val puntos = PuntosCarga(this, cGris)
+        val plp = LinearLayout.LayoutParams(dp(26), dp(18))
+        plp.setMargins(dp(6), dp(5), 0, 0)
+        cargando.addView(puntos, plp)
         root.addView(cargando)
 
         orbe = Orbe(this)
@@ -801,13 +800,7 @@ class MainActivity : Activity() {
     }
 
     private fun vistaPreviaCodigo(codigo: String, lang: String) {
-        val esSvg = lang == "svg" || codigo.trimStart().startsWith("<svg")
-        val html = if (esSvg) {
-            "<body style='margin:0;background:#fff;display:flex;align-items:center;" +
-                "justify-content:center;min-height:100vh'>$codigo</body>"
-        } else {
-            codigo
-        }
+        val html = Visuales.envolverHtml(codigo, lang)
         val i = Intent(this, VistaPreviaActivity::class.java)
         i.putExtra("html", html.take(200000))
         startActivity(i)
@@ -840,8 +833,30 @@ class MainActivity : Activity() {
                 fila.orientation = LinearLayout.HORIZONTAL
                 fila.gravity = Gravity.END
                 val ini = codigo.trimStart().lowercase()
-                if (lang == "html" || lang == "svg" || ini.startsWith("<svg") || ini.startsWith("<!doctype html")) {
-                    fila.addView(accionTexto("Vista previa") { vistaPreviaCodigo(codigo, lang) })
+                val esHtml = lang == "html" || lang == "svg" || ini.startsWith("<svg") ||
+                    ini.startsWith("<!doctype html")
+                var caja: Visuales.CajaHtml? = null
+                if (esHtml) {
+                    if (codigo.length <= 60000) caja = Visuales.cajaHtml(this, Visuales.envolverHtml(codigo, lang))
+                    fila.addView(accionTexto("Pantalla completa") { vistaPreviaCodigo(codigo, lang) })
+                    val c = caja
+                    if (c != null) {
+                        if (ini.contains("<script")) {
+                            val inter = accionTexto("Interactivo") { }
+                            inter.setOnClickListener {
+                                Visuales.activarJs(c)
+                                inter.visibility = View.GONE
+                            }
+                            fila.addView(inter)
+                        }
+                        val alternar = accionTexto("Ocultar") { }
+                        alternar.setOnClickListener {
+                            val visible = c.vista.visibility == View.VISIBLE
+                            c.vista.visibility = if (visible) View.GONE else View.VISIBLE
+                            alternar.text = if (visible) "Mostrar" else "Ocultar"
+                        }
+                        fila.addView(alternar)
+                    }
                 }
                 fila.addView(accionTexto("Copiar") {
                     val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
@@ -855,24 +870,38 @@ class MainActivity : Activity() {
                 fila.layoutParams = flp
                 chat.addView(fila)
                 animarEntrada(fila)
+                if (caja != null) {
+                    chat.addView(caja.vista)
+                    animarEntrada(caja.vista)
+                }
             } else {
                 val limpio = t.trim()
                 if (limpio.isEmpty()) continue
-                val tv = TextView(this)
-                tv.text = Formato.render(limpio, cCodigoFondo)
-                tv.textSize = 16f
-                tv.setTextColor(cTexto)
-                tv.setLineSpacing(0f, 1.15f)
-                tv.setTextIsSelectable(true)
-                tv.setPadding(dp(8), dp(6), dp(8), dp(6))
-                tv.maxWidth = (resources.displayMetrics.widthPixels * 0.94).toInt()
-                val lp = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                lp.setMargins(dp(4), dp(4), dp(4), dp(4))
-                tv.layoutParams = lp
-                chat.addView(tv)
-                animarEntrada(tv)
+                for (tr in Visuales.trozos(limpio)) {
+                    if (tr is Visuales.Trozo.Tabla) {
+                        val vt = Visuales.vistaTabla(this, tr, cCodigoFondo, cTexto)
+                        chat.addView(vt)
+                        animarEntrada(vt)
+                        continue
+                    }
+                    val textoTrozo = (tr as Visuales.Trozo.Texto).t.trim()
+                    if (textoTrozo.isEmpty()) continue
+                    val tv = TextView(this)
+                    tv.text = Formato.render(textoTrozo, cCodigoFondo)
+                    tv.textSize = 16f
+                    tv.setTextColor(cTexto)
+                    tv.setLineSpacing(0f, 1.15f)
+                    tv.setTextIsSelectable(true)
+                    tv.setPadding(dp(8), dp(6), dp(8), dp(6))
+                    tv.maxWidth = (resources.displayMetrics.widthPixels * 0.94).toInt()
+                    val lp = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                    lp.setMargins(dp(4), dp(4), dp(4), dp(4))
+                    tv.layoutParams = lp
+                    chat.addView(tv)
+                    animarEntrada(tv)
+                }
             }
         }
     }
