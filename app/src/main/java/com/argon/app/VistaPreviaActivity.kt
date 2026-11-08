@@ -49,7 +49,7 @@ class VistaPreviaActivity : Activity() {
                 "<body style='background:#111;color:#eee;font-family:sans-serif;padding:24px'>" +
                     "No encontré <b>$archivo</b> en el proyecto <b>$proyecto</b>.</body>"
             } else {
-                incrustar(p, proyecto, archivo, base)
+                                Visuales.conMotor3D(incrustar(p, proyecto, archivo, base))
             }
         }
 
