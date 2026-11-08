@@ -27,15 +27,22 @@ object Formato {
     private fun convertirLatex(latex: String): String {
         var s = latex
         
+        // Símbolos griegos y matemáticos
         s = s.replace("\\pm", "±")
         s = s.replace("\\pi", "π")
         s = s.replace("\\alpha", "α")
         s = s.replace("\\beta", "β")
+        s = s.replace("\\gamma", "γ")
         s = s.replace("\\theta", "θ")
         s = s.replace("\\lambda", "λ")
         s = s.replace("\\mu", "μ")
         s = s.replace("\\sigma", "σ")
         s = s.replace("\\omega", "ω")
+        s = s.replace("\\phi", "ϕ")
+        s = s.replace("\\psi", "ψ")
+        s = s.replace("\\rho", "ρ")
+        s = s.replace("\\epsilon", "ε")
+        s = s.replace("\\varphi", "φ")
         s = s.replace("\\Delta", "Δ")
         s = s.replace("\\infty", "∞")
         s = s.replace("\\approx", "≈")
@@ -45,14 +52,28 @@ object Formato {
         s = s.replace("\\cdot", "·")
         s = s.replace("\\div", "÷")
         s = s.replace("\\times", "×")
+        s = s.replace("\\partial", "∂")
+        s = s.replace("\\sum", "∑")
+        s = s.replace("\\int", "∫")
 
+        // Funciones trigonométricas y matemáticas
+        s = s.replace("\\sin", "sen")
+        s = s.replace("\\cos", "cos")
+        s = s.replace("\\tan", "tan")
+        s = s.replace("\\log", "log")
+        s = s.replace("\\ln", "ln")
+        s = s.replace("\\lim", "lim")
+
+        // Fracciones
         val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
         s = fracRegex.replace(s) { match -> "(${match.groupValues[1]} / ${match.groupValues[2]})" }
 
+        // Raíces
         val sqrtRegex = Regex("\\\\sqrt\\{([^}]+)\\}")
         s = sqrtRegex.replace(s) { match -> "√(${match.groupValues[1]})" }
 
-        val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ω)])\\^([0-9n+-]+)")
+        // Superíndices
+        val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ωεϕψρφ)])\\^([0-9n+-]+)")
         s = supRegex.replace(s) { match ->
             val base = match.groupValues[1]
             val exp = match.groupValues[2]
@@ -77,6 +98,7 @@ object Formato {
             "$base$supExp"
         }
 
+        // Subíndices
         val subRegex = Regex("([a-zA-Zα-ωΑ-Ω])_([0-9ni])")
         s = subRegex.replace(s) { match ->
             val base = match.groupValues[1]
