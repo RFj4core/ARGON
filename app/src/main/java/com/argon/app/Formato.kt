@@ -27,7 +27,6 @@ object Formato {
     private fun convertirLatex(latex: String): String {
         var s = latex
         
-        // Símbolos griegos y operadores comunes
         s = s.replace("\\pm", "±")
         s = s.replace("\\pi", "π")
         s = s.replace("\\alpha", "α")
@@ -47,15 +46,12 @@ object Formato {
         s = s.replace("\\div", "÷")
         s = s.replace("\\times", "×")
 
-        // Fracciones \frac{a}{b} -> (a / b)
         val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
-        s = fracRegex.replace(s) { "(${it.groupValues[1]} / ${it.groupValues[2]})" }
+        s = fracRegex.replace(s) { match -> "(${match.groupValues[1]} / ${match.groupValues[2]})" }
 
-        // Raíces \sqrt{a} -> √(a)
         val sqrtRegex = Regex("\\\\sqrt\\{([^}]+)\\}")
-        s = sqrtRegex.replace(s) { "√(${it.groupValues[1]})" }
+        s = sqrtRegex.replace(s) { match -> "√(${match.groupValues[1]})" }
 
-        // Superíndices simples a^2 -> a² (ampliado para múltiples caracteres o números)
         val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ω)])\\^([0-9n+-]+)")
         s = supRegex.replace(s) { match ->
             val base = match.groupValues[1]
@@ -81,7 +77,6 @@ object Formato {
             "$base$supExp"
         }
 
-        // Subíndices a_1 -> a₁
         val subRegex = Regex("([a-zA-Zα-ωΑ-Ω])_([0-9ni])")
         s = subRegex.replace(s) { match ->
             val base = match.groupValues[1]
@@ -104,7 +99,6 @@ object Formato {
             "$base$subChar"
         }
 
-        // Limpiar llaves sobrantes
         s = s.replace("{", "").replace("}", "")
         return s
     }
@@ -121,18 +115,21 @@ object Formato {
     }
 
     private fun linea(texto: String, fondoCodigo: Int): SpannableStringBuilder {
-        val t = reEnlace.replace(texto) { it.groupValues[1] + " (" + it.groupValues[2] + ")" }
+        val t = reEnlace.replace(texto) { match -> match.groupValues[1] + " (" + match.groupValues[2] + ")" }
         val sb = SpannableStringBuilder(t)
         
-        // Soporte para fórmulas matemáticas en línea con $...$
-        aplicar(sb, reMath, 1) {
-            val original = sb.subSequence(it.range.first + 1, it.range.last).toString()
+        while (true) {
+            val m = reMath.find(sb) ?: break
+            val original = m.groupValues[1]
             val convertido = convertirLatex(original)
-            sb.replace(it.range.first, it.range.last + 1, convertido)
-            listOf(
-                TypefaceSpan("monospace"),
-                ForegroundColorSpan(Color.parseColor("#A8D1FF"))
-            )
+            val ini = m.range.first
+            val fin = m.range.last + 1
+            sb.delete(fin - 1, fin)
+            sb.delete(ini, ini + 1)
+            val realFin = ini + convertido.length
+            sb.replace(ini, realFin, convertido)
+            sb.setSpan(TypefaceSpan("monospace"), ini, realFin, FLAG)
+            sb.setSpan(ForegroundColorSpan(Color.parseColor("#A8D1FF")), ini, realFin, FLAG)
         }
 
         aplicar(sb, reCodigo, 1) {
