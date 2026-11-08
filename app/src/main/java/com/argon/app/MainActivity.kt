@@ -65,6 +65,16 @@ private const val SISTEMA =
     "sin saludos exagerados, sin emojis y sin entusiasmo de más. " +
     "Puedes usar formato Markdown simple (títulos con #, negritas con **, listas con -). " +
     "Eres un programador experto cuando te piden código. " +
+    "Para objetos 3D escribe un bloque ```html con <script> que use la librería Argon3D, que ya viene incluida " +
+    "(no cargues nada de internet, no hay red). Uso: const e = Argon3D.escena({fondo:'#000', rotar:true}); " +
+    "e.esfera(x,y,z,radio,color); e.caja(x,y,z,ancho,alto,fondo,color); e.cilindro(x,y,z,radio,alto,color); " +
+    "e.toro(x,y,z,R,r,color); e.linea([x,y,z],[x,y,z],color,grosor); " +
+    "e.tubo([[x,y,z],...],radio,color o función(t) que devuelve un color, t va de 0 a 1); " +
+    "e.superficie((u,v)=>[x,y,z],u0,u1,v0,v1,nu,nv,color o función(u,v)); e.malla(vertices,caras,color); " +
+    "e.texto(x,y,z,'txt',color); e.iniciar(). Los colores son CSS y Argon3D.hsl(h,s,l) ayuda. " +
+    "Todo se centra y se escala solo, y el usuario gira con el dedo y hace zoom con pellizco. " +
+    "Para objetos complejos (moléculas, proteínas, cuerpos) compón muchas esferas, tubos y líneas con ciclos for. " +
+    "Si te piden un ajuste, devuelve el bloque completo. " +
     "Para proyectos de varios archivos usa las herramientas de proyecto: cada vez que guardas un archivo " +
     "se guarda una copia exacta de la versión anterior; si un cambio falla, usa proyecto_versiones y " +
     "proyecto_restaurar. Antes de cambiar un archivo existente, léelo. " +
@@ -304,9 +314,9 @@ class MainActivity : Activity() {
         txt.setTextColor(cGris)
         cargando.addView(txt)
         val puntos = PuntosCarga(this, cGris)
-        val plp = LinearLayout.LayoutParams(dp(26), dp(18))
-        plp.setMargins(dp(6), dp(5), 0, 0)
-        cargando.addView(puntos, plp)
+        val lpPuntos = LinearLayout.LayoutParams(dp(26), dp(18))
+        lpPuntos.setMargins(dp(6), dp(5), 0, 0)
+        cargando.addView(puntos, lpPuntos)
         root.addView(cargando)
 
         orbe = Orbe(this)
@@ -842,7 +852,7 @@ class MainActivity : Activity() {
                     val c = caja
                     if (c != null) {
                         if (ini.contains("<script")) {
-                            val inter = accionTexto("Interactivo") { }
+                            val inter = accionTexto(if (ini.contains("argon3d")) "Activar 3D" else "Interactivo") { }
                             inter.setOnClickListener {
                                 Visuales.activarJs(c)
                                 inter.visibility = View.GONE
