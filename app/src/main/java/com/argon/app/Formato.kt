@@ -77,7 +77,6 @@ object Formato {
         s = s.replace("\\oplus", "⊕")
         s = s.replace("\\otimes", "⊗")
         s = s.replace("\\odot", "⊙")
-        s = s.replace("\\infinity", "∞")
         s = s.replace("\\infty", "∞")
         s = s.replace("\\approx", "≈")
         s = s.replace("\\sim", "∼")
@@ -160,6 +159,13 @@ object Formato {
         s = s.replace("\\ker", "ker")
         s = s.replace("\\deg", "deg")
         s = s.replace("\\gcd", "mcd")
+        s = s.replace("\\mathbf{E}", "𝐄")
+        s = s.replace("\\mathbf{B}", "𝐁")
+        s = s.replace("\\mathbf{F}", "𝐅")
+        s = s.replace("\\mathbf{S}", "𝐒")
+        s = s.replace("\\mathbf{J}", "𝐉")
+        s = s.replace("\\varepsilon_0", "ε₀")
+        s = s.replace("\\mu_0", "μ₀")
 
         // Fracciones
         val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
@@ -173,7 +179,7 @@ object Formato {
         s = sqrtRegex.replace(s) { match -> "√(${match.groupValues[1]})" }
 
         // Superíndices
-        val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ωεϕψρφ)])\\^([0-9n+-]+)")
+        val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ωεϕψρφθ])\\^([0-9n+-]+)")
         s = supRegex.replace(s) { match ->
             val base = match.groupValues[1]
             val exp = match.groupValues[2]
@@ -199,7 +205,7 @@ object Formato {
         }
 
         // Subíndices
-        val subRegex = Regex("([a-zA-Zα-ωΑ-Ω])_([0-9ni])")
+        val subRegex = Regex("([a-zA-Zα-ωΑ-Ωθ])_([0-9ni])")
         s = subRegex.replace(s) { match ->
             val base = match.groupValues[1]
             val sub = match.groupValues[2]
