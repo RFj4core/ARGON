@@ -9,7 +9,6 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
-import android.text.style.SuperscriptSpan
 
 object Formato {
 
@@ -24,6 +23,91 @@ object Formato {
     private val reRegla = Regex("^(-{3,}|\\*{3,}|_{3,})$")
 
     private const val FLAG = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+
+    private fun convertirLatex(latex: String): String {
+        var s = latex
+        
+        // Símbolos griegos y operadores comunes
+        s = s.replace("\\pm", "±")
+        s = s.replace("\\pi", "π")
+        s = s.replace("\\alpha", "α")
+        s = s.replace("\\beta", "β")
+        s = s.replace("\\theta", "θ")
+        s = s.replace("\\lambda", "λ")
+        s = s.replace("\\mu", "μ")
+        s = s.replace("\\sigma", "σ")
+        s = s.replace("\\omega", "ω")
+        s = s.replace("\\Delta", "Δ")
+        s = s.replace("\\infty", "∞")
+        s = s.replace("\\approx", "≈")
+        s = s.replace("\\neq", "≠")
+        s = s.replace("\\leq", "≤")
+        s = s.replace("\\geq", "≥")
+        s = s.replace("\\cdot", "·")
+        s = s.replace("\\div", "÷")
+        s = s.replace("\\times", "×")
+
+        // Fracciones \frac{a}{b} -> (a / b)
+        val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
+        s = fracRegex.replace(s) { "(${it.groupValues[1]} / ${it.groupValues[2]})" }
+
+        // Raíces \sqrt{a} -> √(a)
+        val sqrtRegex = Regex("\\\\sqrt\\{([^}]+)\\}")
+        s = sqrtRegex.replace(s) { "√(${it.groupValues[1]})" }
+
+        // Superíndices simples a^2 -> a² (ampliado para múltiples caracteres o números)
+        val supRegex = Regex("([a-zA-Z0-9α-ωΑ-Ω)])\\^([0-9n+-]+)")
+        s = supRegex.replace(s) { match ->
+            val base = match.groupValues[1]
+            val exp = match.groupValues[2]
+            val supExp = exp.map { c ->
+                when (c) {
+                    '0' -> '⁰'
+                    '1' -> '¹'
+                    '2' -> '²'
+                    '3' -> '³'
+                    '4' -> '⁴'
+                    '5' -> '⁵'
+                    '6' -> '⁶'
+                    '7' -> '⁷'
+                    '8' -> '⁸'
+                    '9' -> '⁹'
+                    'n' -> 'ⁿ'
+                    '+' -> '⁺'
+                    '-' -> '⁻'
+                    else -> c
+                }
+            }.joinToString("")
+            "$base$supExp"
+        }
+
+        // Subíndices a_1 -> a₁
+        val subRegex = Regex("([a-zA-Zα-ωΑ-Ω])_([0-9ni])")
+        s = subRegex.replace(s) { match ->
+            val base = match.groupValues[1]
+            val sub = match.groupValues[2]
+            val subChar = when (sub) {
+                "0" -> "₀"
+                "1" -> "₁"
+                "2" -> "₂"
+                "3" -> "₃"
+                "4" -> "₄"
+                "5" -> "₅"
+                "6" -> "₆"
+                "7" -> "₇"
+                "8" -> "₈"
+                "9" -> "₉"
+                "n" -> "ₙ"
+                "i" -> "ᵢ"
+                else -> "_$sub"
+            }
+            "$base$subChar"
+        }
+
+        // Limpiar llaves sobrantes
+        s = s.replace("{", "").replace("}", "")
+        return s
+    }
 
     private fun aplicar(sb: SpannableStringBuilder, re: Regex, delim: Int, estilos: () -> List<Any>) {
         while (true) {
@@ -42,6 +126,9 @@ object Formato {
         
         // Soporte para fórmulas matemáticas en línea con $...$
         aplicar(sb, reMath, 1) {
+            val original = sb.subSequence(it.range.first + 1, it.range.last).toString()
+            val convertido = convertirLatex(original)
+            sb.replace(it.range.first, it.range.last + 1, convertido)
             listOf(
                 TypefaceSpan("monospace"),
                 ForegroundColorSpan(Color.parseColor("#A8D1FF"))
