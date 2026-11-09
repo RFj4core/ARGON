@@ -1,6 +1,6 @@
 package com.argon.app
 
-// Motor 3D mínimo (Canvas 2D, sin internet). Se inyecta solo cuando el HTML usa Argon3D.
+// Motor 3D optimizado (Canvas 2D, sin internet). Se inyecta solo cuando el HTML usa Argon3D.
 object Motor3D {
     const val JS = """(function () {
   var W = window;
@@ -80,10 +80,31 @@ object Motor3D {
       return S;
     };
 
-    S.caja = function (x, y, z, w, h, d, c) {
+    // 1. Mejora de Caja: Permite rotación opcional [rx, ry, rz]
+    S.caja = function (x, y, z, w, h, d, c, rot) {
       var a = w / 2, b = h / 2, e = d / 2;
-      var P = [[-a, -b, -e], [a, -b, -e], [a, b, -e], [-a, b, -e], [-a, -b, e], [a, -b, e], [a, b, e], [-a, b, e]]
-        .map(function (q) { return [q[0] + x, q[1] + y, q[2] + z]; });
+      var P = [[-a, -b, -e], [a, -b, -e], [a, b, -e], [-a, b, -e], [-a, -b, e], [a, -b, e], [a, b, e], [-a, b, e]];
+      
+      if (rot) {
+        var rx = rot[0] || 0, ry = rot[1] || 0, rz = rot[2] || 0;
+        var cx = Math.cos(rx), sx = Math.sin(rx);
+        var cy = Math.cos(ry), sy = Math.sin(ry);
+        var cz = Math.cos(rz), sz = Math.sin(rz);
+        
+        P = P.map(function(q) {
+          var px = q[0], py = q[1], pz = q[2];
+          // Rotación Y
+          var x1 = cy * px + sy * pz, z1 = -sy * px + cy * pz;
+          // Rotación X
+          var y2 = cx * py - sx * z1, z2 = sx * py + cx * z1;
+          // Rotación Z
+          var x3 = cz * x1 - sz * y2, y3 = sz * x1 + cz * y2;
+          return [x3 + x, y3 + y, z2 + z];
+        });
+      } else {
+        P = P.map(function (q) { return [q[0] + x, q[1] + y, q[2] + z]; });
+      }
+
       return S.malla(P, [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [1, 2, 6, 5], [0, 3, 7, 4]], c);
     };
 
@@ -150,6 +171,51 @@ object Motor3D {
       }
       return o;
     }
+
+    // 2. Nueva función `cuerda` / Tubo de alto rendimiento sin saturación de esferas
+    // Conecta puntos mediante segmentos de caja (prismas rectangulares continuos) sin lag
+    S.cuerda = function (P, grosor, c) {
+      var n = P.length, i;
+      if (n < 2) return S;
+      var ancho = grosor || 0.05;
+      var col = parse(c || '#00ffff');
+
+      for (i = 0; i < n - 1; i++) {
+        var pA = P[i], pB = P[i + 1];
+        var cx = (pA[0] + pB[0]) / 2;
+        var cy = (pA[1] + pB[1]) / 2;
+        var cz = (pA[2] + pB[2]) / 2;
+        var dx = pB[0] - pA[0], dy = pB[1] - pA[1], dz = pB[2] - pA[2];
+        var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        if (dist === 0) continue;
+
+        // Crear una caja alargada y orientada entre pA y pB para simular la cuerda sólida sin lag
+        var a = ancho / 2;
+        var V = [[-dist/2, -a, -a], [dist/2, -a, -a], [dist/2, a, -a], [-dist/2, a, -a], [-dist/2, -a, a], [dist/2, -a, a], [dist/2, a, a], [-dist/2, a, a]];
+        
+        // Orientación hacia el vector de dirección
+        var pitch = Math.asin(dy / dist);
+        var yaw = Math.atan2(dx, dz);
+        var cp = Math.cos(pitch), sp = Math.sin(pitch);
+        var cyaw = Math.cos(yaw), syaw = Math.sin(yaw);
+
+        V = V.map(function(q) {
+          var px = q[0], py = q[1], pz = q[2];
+          // Rotación en Y y PITCH para alinear de A a B
+          var x1 = cyaw * px + syaw * pz, z1 = -syaw * px + cyaw * pz;
+          var y2 = cp * py - sp * z1, z2 = sp * py + cp * z1;
+          return [x1 + cx, y2 + cy, z2 + cz];
+        });
+
+        pol.push({ v: [V[0], V[1], V[2], V[3]], c: col });
+        pol.push({ v: [V[4], V[5], V[6], V[7]], c: col });
+        pol.push({ v: [V[0], V[1], V[5], V[4]], c: col });
+        pol.push({ v: [V[2], V[3], V[7], V[6]], c: col });
+        pol.push({ v: [V[1], V[2], V[6], V[5]], c: col });
+        pol.push({ v: [V[0], V[3], V[7], V[4]], c: col });
+      }
+      return S;
+    };
 
     S.tubo = function (P, r, c, paso) {
       var n = P.length, pts = [], i, k;
