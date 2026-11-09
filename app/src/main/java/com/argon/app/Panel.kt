@@ -110,6 +110,18 @@ object Panel {
 
         raiz.addView(View(act), LinearLayout.LayoutParams(1, 0, 1f))
         raiz.addView(linea())
+
+        // Opción de Actualizar integrada en el panel
+        raiz.addView(fila("Actualizar", "Verificar nueva versión", "⟳") {
+            try {
+                // Aquí enlazamos directamente a los releases o APK de GitHub
+                val updateUrl = "https://github.com/RFj4core/ARGON/releases"
+                act.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl)))
+            } catch (e: Exception) {
+                Toast.makeText(act, "No pude abrir el actualizador", Toast.LENGTH_SHORT).show()
+            }
+        })
+
         raiz.addView(fila("GitHub", "RFj4core/ARGON", "↗") {
             try {
                 act.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl)))
