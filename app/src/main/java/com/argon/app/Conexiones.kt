@@ -66,6 +66,8 @@ object Conexiones {
         "proyecto_borrar", "proyecto_restaurar",
         "rutina_programar", "rutina_quitar_programacion",
         "telegram_enviar", "compartir_en_app",
-        "abrir_app", "abrir_enlace", "compartir_texto"
+        "abrir_app", "abrir_enlace", "compartir_texto",
+        "abrir_pagina", "generar_imagen", "copiar_portapapeles",
+        "guardar_rutina", "rutina_agregar_paso"
     )
 }
