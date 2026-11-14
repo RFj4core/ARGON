@@ -83,7 +83,7 @@ class Proyectos(private val act: Activity) {
                 "proyecto_zip" -> zip(a.optString("proyecto", ""))
                 else -> null
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             "Error en $nombre: ${e.message}"
         }
     }
@@ -113,6 +113,9 @@ class Proyectos(private val act: Activity) {
         for (d in subdirs) sb.append(d).append("/")
         return sb.toString()
     }
+
+    private fun like(s: String): String =
+        s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     private fun marca(): String =
         SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())
@@ -215,8 +218,8 @@ class Proyectos(private val act: Activity) {
                 MediaStore.Downloads.RELATIVE_PATH, MediaStore.Downloads.DISPLAY_NAME,
                 MediaStore.Downloads.SIZE
             ),
-            MediaStore.Downloads.RELATIVE_PATH + " LIKE ?",
-            arrayOf(raiz + (if (p.isEmpty()) "" else "$p/") + "%"),
+            MediaStore.Downloads.RELATIVE_PATH + " LIKE ? ESCAPE '\\'",
+            arrayOf(like(raiz + (if (p.isEmpty()) "" else "$p/")) + "%"),
             MediaStore.Downloads.RELATIVE_PATH + " ASC, " + MediaStore.Downloads.DISPLAY_NAME + " ASC"
         )?.use { c ->
             while (c.moveToNext() && vistos.size < 200) {
@@ -285,7 +288,7 @@ class Proyectos(private val act: Activity) {
                     MediaStore.Downloads._ID, MediaStore.Downloads.RELATIVE_PATH,
                     MediaStore.Downloads.DISPLAY_NAME
                 ),
-                MediaStore.Downloads.RELATIVE_PATH + " LIKE ?", arrayOf(raiz + "$p/%"), null
+                MediaStore.Downloads.RELATIVE_PATH + " LIKE ? ESCAPE '\\'", arrayOf(like(raiz + "$p/") + "%"), null
             )?.use { c ->
                 while (c.moveToNext() && cont < 300) {
                     val rel = c.getString(1) ?: continue
