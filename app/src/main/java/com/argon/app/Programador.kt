@@ -14,6 +14,17 @@ object Programador {
 
     private const val ARCHIVO = "programaciones.json"
 
+    // Secreto local: solo las notificaciones de Argón lo llevan, así otra app no puede lanzar rutinas.
+    fun token(ctx: Context): String {
+        val pr = ctx.getSharedPreferences("argon", Context.MODE_PRIVATE)
+        var t = pr.getString("tok_rutina", null)
+        if (t == null) {
+            t = java.util.UUID.randomUUID().toString()
+            pr.edit().putString("tok_rutina", t).apply()
+        }
+        return t
+    }
+
     fun cargar(ctx: Context): JSONArray =
         try {
             JSONArray(File(ctx.filesDir, ARCHIVO).readText())
