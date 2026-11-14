@@ -110,7 +110,7 @@ class Extras(private val act: Activity) {
                 "vista_previa" -> vistaPrevia(a.optString("proyecto", ""), a.optString("archivo", ""))
                 else -> null
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             "Error en $nombre: ${e.message}"
         }
     }
