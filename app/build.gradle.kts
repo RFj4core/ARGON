@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "com.argon.app"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 53
+        versionName = "0.0.53b"
     }
 
     compileOptions {
