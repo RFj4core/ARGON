@@ -21,6 +21,7 @@ class RutinaReceiver : BroadcastReceiver() {
         )
         val abrir = Intent(ctx, MainActivity::class.java)
             .putExtra("rutina", nombre)
+            .putExtra("tok", Programador.token(ctx))
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pi = PendingIntent.getActivity(
             ctx, nombre.hashCode(), abrir, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
