@@ -110,10 +110,24 @@ object Api {
                     con.disconnect()
 
                     if (codigo in 200..299) {
-                        val cand = JSONObject(resp).getJSONArray("candidates").getJSONObject(0)
-                        val content = cand.optJSONObject("content")
-                            ?: JSONObject().put("role", "model").put("parts", JSONArray())
-                        return RespApi(content, null, modelo)
+                        try {
+                            val raiz = JSONObject(resp)
+                            val cands = raiz.optJSONArray("candidates")
+                            if (cands == null || cands.length() == 0) {
+                                val motivo = raiz.optJSONObject("promptFeedback")?.optString("blockReason", "") ?: ""
+                                return RespApi(
+                                    null,
+                                    "Google bloqueó la respuesta" + (if (motivo.isNotEmpty()) " ($motivo)" else "") +
+                                        ". Reformula el mensaje.",
+                                    modelo
+                                )
+                            }
+                            val content = cands.getJSONObject(0).optJSONObject("content")
+                                ?: JSONObject().put("role", "model").put("parts", JSONArray())
+                            return RespApi(content, null, modelo)
+                        } catch (e: org.json.JSONException) {
+                            return RespApi(null, "Respuesta inesperada de Google: ${e.message}", modelo)
+                        }
                     }
 
                     if (codigo == 429 || codigo == 500 || codigo == 503) {
